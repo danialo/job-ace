@@ -29,11 +29,20 @@ def init() -> None:
 
 @app.command()
 def load_blocks(path: Path) -> None:
-    """Load resume blocks from a YAML file."""
+    """Load resume blocks from a YAML or XML file."""
     if not path.exists():
+        typer.echo(f"Error: File not found: {path}", err=True)
         raise typer.Exit(code=1)
-    with path.open("r", encoding="utf-8") as handle:
-        content = yaml.safe_load(handle) or []
+
+    # Detect file format
+    if path.suffix.lower() == '.xml':
+        content = _parse_xml_blocks(path)
+    elif path.suffix.lower() in ['.yaml', '.yml']:
+        with path.open("r", encoding="utf-8") as handle:
+            content = yaml.safe_load(handle) or []
+    else:
+        typer.echo(f"Error: Unsupported file format: {path.suffix}. Use .xml, .yaml, or .yml", err=True)
+        raise typer.Exit(code=1)
 
     with get_session() as session:
         for item in content:
@@ -44,6 +53,44 @@ def load_blocks(path: Path) -> None:
             )
             session.add(block)
         typer.echo(f"Loaded {len(content)} blocks")
+
+
+def _parse_xml_blocks(path: Path) -> list[dict]:
+    """Parse XML resume blocks file."""
+    import xml.etree.ElementTree as ET
+
+    NS = "{http://job-ace.local/resume}"
+    tree = ET.parse(str(path))
+    root = tree.getroot()
+
+    blocks = []
+    blocks_elem = root.find(f"{NS}blocks")
+
+    if blocks_elem is not None:
+        for block_elem in blocks_elem.findall(f"{NS}block"):
+            # Extract category
+            category_elem = block_elem.find(f"{NS}category")
+            category = category_elem.text if category_elem is not None else "other"
+
+            # Extract tags
+            tags = []
+            tags_elem = block_elem.find(f"{NS}tags")
+            if tags_elem is not None:
+                for tag_elem in tags_elem.findall(f"{NS}tag"):
+                    if tag_elem.text:
+                        tags.append(tag_elem.text)
+
+            # Extract content
+            content_elem = block_elem.find(f"{NS}content")
+            content = content_elem.text if content_elem is not None else ""
+
+            blocks.append({
+                "category": category,
+                "tags": tags,
+                "text": content,
+            })
+
+    return blocks
 
 
 @app.command()
