@@ -19,6 +19,18 @@ build/
 # Artifacts
 artifacts/
 
+# Resume files (user data)
+*.pdf
+*.docx
+*.doc
+*.xml
+!example_resume_blocks.xml
+!docs/schemas/*.xsd
+
+# Test files
+test_resume*
+danial_resume*
+
 # IDE
 .vscode/
 .idea/
