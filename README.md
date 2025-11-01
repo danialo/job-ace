@@ -315,7 +315,7 @@ For issues or questions, check the documentation in `docs/` or review the code.
 ## Example Workflow
 
 1. **Start the server**: `./start.sh`
-2. **Open the web UI**: http://172.239.66.45:8000
+2. **Open the web UI**: http://172.239.66.45:3000
 3. **Capture a job**: Enter URL in "Capture Job" tab
 4. **Load resume blocks**: `job-ace load-blocks example_resume_blocks.yaml`
 5. **Tailor resume**: Select job and blocks in "Tailor Resume" tab
