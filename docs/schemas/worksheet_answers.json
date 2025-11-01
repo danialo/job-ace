@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-ace.local/schemas/worksheet_answers.json",
+  "title": "Worksheet Answers",
+  "type": "object",
+  "required": ["schema_ref", "worksheet_version", "values"],
+  "properties": {
+    "schema_ref": {
+      "type": "object",
+      "required": ["schema_version", "capture_run_id", "schema_path"],
+      "properties": {
+        "schema_version": { "type": "string" },
+        "capture_run_id": { "type": "string" },
+        "schema_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "worksheet_version": { "type": "integer", "minimum": 1 },
+    "values": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9._-]+$": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string" },
+                "formatted": { "type": ["string", "null"] }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+

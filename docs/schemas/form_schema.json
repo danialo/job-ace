@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://job-ace.local/schemas/form_schema.json",
+  "title": "Captured Job Form Schema",
+  "type": "object",
+  "required": ["schema_version", "job_ref", "capture"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "job_ref": {
+      "type": "object",
+      "required": ["job_id", "source_url"],
+      "properties": {
+        "job_id": { "type": ["integer", "null"] },
+        "source_url": { "type": "string" },
+        "portal_family": { "type": ["string", "null"] },
+        "capture_run_id": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "capture": {
+      "type": "object",
+      "required": ["captured_at", "browser", "stages"],
+      "properties": {
+        "captured_at": { "type": "string" },
+        "browser": {
+          "type": "object",
+          "required": ["engine", "headless"],
+          "properties": {
+            "engine": { "type": "string" },
+            "headless": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "stages": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stage" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "schema_path": { "type": "string" },
+        "screenshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["stage", "path"],
+            "properties": {
+              "stage": { "type": "string" },
+              "path": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "raw_html_path": { "type": "string" },
+        "log_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "required": ["id", "name", "sequence", "fields"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "sequence": { "type": "integer" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/field" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "field": {
+      "type": "object",
+      "required": ["id", "selector", "label", "control"],
+      "properties": {
+        "id": { "type": "string" },
+        "selector": { "type": "string" },
+        "label": { "type": ["string", "null"] },
+        "control": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string" },
+            "required": { "type": "boolean" },
+            "multiple": { "type": "boolean" },
+            "maxlength": { "type": ["integer", "null"] },
+            "placeholder": { "type": ["string", "null"] },
+            "options": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "object",
+                "required": ["value"],
+                "properties": {
+                  "value": { "type": "string" },
+                  "label": { "type": ["string", "null"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+

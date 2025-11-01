@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Ace - Application Assistant</title>
+    <link rel="stylesheet" href="static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Job Ace</h1>
+            <p class="subtitle">Local-First Job Application Assistant</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-button active" data-tab="intake">1. Capture Job</button>
+            <button class="tab-button" data-tab="tailor">2. Tailor Resume</button>
+            <button class="tab-button" data-tab="capture">3. Capture Form</button>
+            <button class="tab-button" data-tab="apply">4. Apply</button>
+        </nav>
+
+        <!-- Tab 1: Intake -->
+        <div id="intake" class="tab-content active">
+            <div class="card">
+                <h2>Capture Job Posting</h2>
+                <p>Enter a job posting URL to capture and analyze the position details.</p>
+
+                <form id="intake-form">
+                    <div class="form-group">
+                        <label for="job-url">Job Posting URL</label>
+                        <input
+                            type="url"
+                            id="job-url"
+                            placeholder="https://example.com/job-posting"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="force-refresh">
+                            Force refresh (re-capture even if exists)
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Capture Job</button>
+                </form>
+
+                <div id="intake-result" class="result-box hidden"></div>
+            </div>
+
+            <div class="card">
+                <h3>Recent Jobs</h3>
+                <div id="jobs-list" class="jobs-list">
+                    <p class="text-muted">No jobs captured yet. Add one above!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Tailor Resume -->
+        <div id="tailor" class="tab-content">
+            <div class="card">
+                <h2>Tailor Resume</h2>
+                <p>Select a job and resume blocks to generate a tailored resume.</p>
+
+                <form id="tailor-form">
+                    <div class="form-group">
+                        <label for="select-job">Select Job</label>
+                        <select id="select-job" required>
+                            <option value="">-- Select a job --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resume-blocks">Resume Blocks (comma-separated IDs)</label>
+                        <input
+                            type="text"
+                            id="resume-blocks"
+                            placeholder="1,2,3,4"
+                            required
+                        >
+                        <small class="help-text">Enter resume block IDs to include in your tailored resume</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resume-version">Resume Version (optional)</label>
+                        <input
+                            type="text"
+                            id="resume-version"
+                            placeholder="v1.0"
+                        >
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Generate Tailored Resume</button>
+                </form>
+
+                <div id="tailor-result" class="result-box hidden"></div>
+            </div>
+
+            <div class="card">
+                <h3>Resume Blocks</h3>
+                <div id="blocks-list" class="blocks-list">
+                    <p class="text-muted">Load resume blocks using: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 3: Capture Form -->
+        <div id="capture" class="tab-content">
+            <div class="card">
+                <h2>Capture Application Form</h2>
+                <p>Capture the application form schema from a job posting page.</p>
+
+                <form id="capture-form">
+                    <div class="form-group">
+                        <label for="capture-job">Select Job</label>
+                        <select id="capture-job" required>
+                            <option value="">-- Select a job --</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Capture Form Schema</button>
+                </form>
+
+                <div id="capture-result" class="result-box hidden"></div>
+            </div>
+
+            <div class="card">
+                <h3>Generate Prefill Plan</h3>
+                <form id="prefill-form">
+                    <div class="form-group">
+                        <label for="prefill-job">Select Job</label>
+                        <select id="prefill-job" required>
+                            <option value="">-- Select a job --</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Generate Prefill Plan</button>
+                </form>
+
+                <div id="prefill-result" class="result-box hidden"></div>
+            </div>
+        </div>
+
+        <!-- Tab 4: Apply -->
+        <div id="apply" class="tab-content">
+            <div class="card">
+                <h2>Submit Application</h2>
+                <p>Log your application submission.</p>
+
+                <form id="submit-form">
+                    <div class="form-group">
+                        <label for="submit-job">Select Job</label>
+                        <select id="submit-job" required>
+                            <option value="">-- Select a job --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="confirmation-id">Confirmation ID</label>
+                        <input
+                            type="text"
+                            id="confirmation-id"
+                            placeholder="ABC123XYZ"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="confirmation-text">Confirmation Message</label>
+                        <textarea
+                            id="confirmation-text"
+                            rows="3"
+                            placeholder="Your application has been submitted..."
+                        ></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="screenshot-path">Screenshot Path (optional)</label>
+                        <input
+                            type="text"
+                            id="screenshot-path"
+                            placeholder="/path/to/screenshot.png"
+                        >
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Log Submission</button>
+                </form>
+
+                <div id="submit-result" class="result-box hidden"></div>
+            </div>
+
+            <div class="card">
+                <h3>Applications</h3>
+                <div id="applications-list" class="applications-list">
+                    <p class="text-muted">No applications logged yet.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>Job Ace v0.1.0 - API Status: <span id="api-status" class="status-indicator">Checking...</span></p>
+    </footer>
+
+    <script src="static/js/app.js"></script>
+</body>
+</html>
