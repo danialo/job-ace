@@ -114,9 +114,19 @@ The web interface will be available at: **http://172.239.66.45:3000**
 job-ace init
 ```
 
+### Convert Resume to XML
+```bash
+job-ace convert-resume <resume-file> [--output-file <output.xml>]
+
+# Examples:
+job-ace convert-resume my_resume.pdf --output-file my_resume.xml
+job-ace convert-resume my_resume.docx  # Prints to stdout
+job-ace convert-resume my_resume.txt --output-file resume.xml
+```
+
 ### Load Resume Blocks
 ```bash
-job-ace load-blocks <yaml-file>
+job-ace load-blocks <yaml-or-xml-file>
 ```
 
 ### Capture Job Posting

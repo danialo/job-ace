@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<resume xmlns="http://job-ace.local/resume" version="1.0">
+  <metadata>
+    <name>John Doe</name>
+    <email>john@example.com</email>
+    <phone>555-0100</phone>
+    <location>San Francisco, CA</location>
+    <linkedin>linkedin.com/in/johndoe</linkedin>
+    <github>github.com/johndoe</github>
+  </metadata>
+
+  <blocks>
+    <block id="summary-1">
+      <category>summary</category>
+      <tags>
+        <tag>software-engineer</tag>
+        <tag>full-stack</tag>
+      </tags>
+      <content>Experienced Software Engineer with 5+ years of expertise in full-stack web development. Proficient in Python, JavaScript, and modern frameworks including React and FastAPI. Strong background in building scalable applications and RESTful APIs.</content>
+    </block>
+
+    <block id="experience-1">
+      <category>experience</category>
+      <tags>
+        <tag>python</tag>
+        <tag>fastapi</tag>
+        <tag>backend</tag>
+      </tags>
+      <content>Senior Backend Engineer - TechCorp (2021-Present)
+- Designed and implemented microservices architecture using Python and FastAPI
+- Built RESTful APIs serving 1M+ requests per day
+- Reduced response times by 40% through optimization and caching strategies
+- Mentored junior developers and conducted code reviews</content>
+      <metadata>
+        <company>TechCorp</company>
+        <title>Senior Backend Engineer</title>
+        <start_date>2021-01</start_date>
+        <end_date>Present</end_date>
+      </metadata>
+    </block>
+
+    <block id="experience-2">
+      <category>experience</category>
+      <tags>
+        <tag>react</tag>
+        <tag>frontend</tag>
+        <tag>javascript</tag>
+      </tags>
+      <content>Full Stack Developer - WebSolutions Inc (2019-2021)
+- Developed responsive web applications using React and TypeScript
+- Implemented real-time features using WebSockets and Redis
+- Collaborated with UX designers to create intuitive user interfaces
+- Improved application performance by 50% through code splitting and lazy loading</content>
+      <metadata>
+        <company>WebSolutions Inc</company>
+        <title>Full Stack Developer</title>
+        <start_date>2019-01</start_date>
+        <end_date>2021-01</end_date>
+      </metadata>
+    </block>
+
+    <block id="skills-1">
+      <category>skills</category>
+      <tags>
+        <tag>technical</tag>
+        <tag>programming</tag>
+      </tags>
+      <content>Technical Skills:
+- Languages: Python, JavaScript, TypeScript, SQL
+- Frameworks: FastAPI, React, Node.js, Django
+- Databases: PostgreSQL, MongoDB, Redis, SQLite
+- Tools: Git, Docker, AWS, CI/CD, Playwright</content>
+    </block>
+
+    <block id="education-1">
+      <category>education</category>
+      <tags>
+        <tag>computer-science</tag>
+        <tag>degree</tag>
+      </tags>
+      <content>Bachelor of Science in Computer Science
+University of Technology (2015-2019)
+GPA: 3.8/4.0
+Relevant Coursework: Data Structures, Algorithms, Web Development, Database Systems</content>
+    </block>
+  </blocks>
+</resume>

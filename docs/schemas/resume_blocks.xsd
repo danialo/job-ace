@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://job-ace.local/resume"
+           xmlns:tns="http://job-ace.local/resume"
+           elementFormDefault="qualified">
+
+  <!-- Root element -->
+  <xs:element name="resume" type="tns:ResumeType"/>
+
+  <!-- Resume type -->
+  <xs:complexType name="ResumeType">
+    <xs:sequence>
+      <xs:element name="metadata" type="tns:MetadataType" minOccurs="0"/>
+      <xs:element name="blocks" type="tns:BlocksType"/>
+    </xs:sequence>
+    <xs:attribute name="version" type="xs:string" default="1.0"/>
+  </xs:complexType>
+
+  <!-- Metadata -->
+  <xs:complexType name="MetadataType">
+    <xs:sequence>
+      <xs:element name="name" type="xs:string" minOccurs="0"/>
+      <xs:element name="email" type="xs:string" minOccurs="0"/>
+      <xs:element name="phone" type="xs:string" minOccurs="0"/>
+      <xs:element name="location" type="xs:string" minOccurs="0"/>
+      <xs:element name="linkedin" type="xs:string" minOccurs="0"/>
+      <xs:element name="github" type="xs:string" minOccurs="0"/>
+      <xs:element name="website" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Blocks collection -->
+  <xs:complexType name="BlocksType">
+    <xs:sequence>
+      <xs:element name="block" type="tns:BlockType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Individual block -->
+  <xs:complexType name="BlockType">
+    <xs:sequence>
+      <xs:element name="category" type="xs:string"/>
+      <xs:element name="tags" type="tns:TagsType" minOccurs="0"/>
+      <xs:element name="content" type="xs:string"/>
+      <xs:element name="metadata" type="tns:BlockMetadataType" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string" use="optional"/>
+  </xs:complexType>
+
+  <!-- Tags -->
+  <xs:complexType name="TagsType">
+    <xs:sequence>
+      <xs:element name="tag" type="xs:string" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Block metadata -->
+  <xs:complexType name="BlockMetadataType">
+    <xs:sequence>
+      <xs:element name="company" type="xs:string" minOccurs="0"/>
+      <xs:element name="title" type="xs:string" minOccurs="0"/>
+      <xs:element name="start_date" type="xs:string" minOccurs="0"/>
+      <xs:element name="end_date" type="xs:string" minOccurs="0"/>
+      <xs:element name="location" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+</xs:schema>

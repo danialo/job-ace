@@ -90,6 +90,34 @@ def capture(job_id: int, headless: bool = typer.Option(True, help="Run browser h
 
 
 @app.command()
+def convert_resume(
+    input_file: Path = typer.Argument(..., help="Path to resume file (PDF, DOCX, or TXT)"),
+    output_file: Optional[Path] = typer.Option(None, help="Output XML file path"),
+) -> None:
+    """Convert a resume file to XML format."""
+    from backend.services.resume_converter import ResumeConverter
+
+    if not input_file.exists():
+        typer.echo(f"Error: File not found: {input_file}", err=True)
+        raise typer.Exit(1)
+
+    converter = ResumeConverter()
+
+    try:
+        xml_content = converter.convert_file(input_file)
+
+        if output_file:
+            output_file.write_text(xml_content, encoding='utf-8')
+            typer.echo(f"Resume converted successfully: {output_file}")
+        else:
+            typer.echo(xml_content)
+
+    except Exception as e:
+        typer.echo(f"Error converting resume: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
 def log_submit(
     job_id: int,
     confirmation_id: Optional[str] = typer.Option(None),
