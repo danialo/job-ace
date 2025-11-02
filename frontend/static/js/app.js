@@ -1,5 +1,5 @@
 // API Base URL
-const API_BASE = 'http://172.239.66.45:3000';
+const API_BASE = window.location.origin;
 
 // State
 let jobs = [];

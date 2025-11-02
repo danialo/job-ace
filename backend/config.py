@@ -9,7 +9,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     data_root: Path = Path("artifacts")
     database_url: str = "sqlite:///./db.sqlite3"
-    llm_model: str = "stub-model"
+    llm_model: str = "gpt-4o-mini"
+    openai_api_key: str = ""
     playwright_headless: bool = True
     intake_user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
