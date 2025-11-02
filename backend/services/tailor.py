@@ -19,7 +19,7 @@ class TailorService:
         self.db = db
         self.artifacts = ArtifactManager(db)
         self.settings = get_settings()
-        self.llm = get_llm_client(self.settings)
+        self.llm = get_llm_client(self.settings, task="tailoring")
 
     def run(self, job_id: int, allowed_block_ids: List[int], resume_version: str) -> Dict:
         job_posting = self._get_job(job_id)

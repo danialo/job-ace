@@ -149,13 +149,34 @@ The `ArtifactManager` class handles:
 
 ### LLM Integration (backend/services/llm.py)
 
-Supports both **OpenAI** (production) and **StubLLMClient** (development/testing):
+Supports both **OpenAI** (production) and **StubLLMClient** (development/testing) with **dual-model strategy** for optimal quality and cost:
+
+#### Dual-Model Strategy
+
+**Why different models for different tasks?**
+- **Job Extraction**: Fast, structured data extraction → GPT-4o-mini (cheap, structured outputs)
+- **Resume Tailoring**: Critical precision for job applications → o1-mini/o3/GPT-5 (reasoning models)
+
+Resume tailoring affects real job outcomes, so we use reasoning models that:
+- Provide deeper analysis with chain-of-thought reasoning
+- Better understand nuanced matches between experience and requirements
+- Minimize hallucinations and errors that could hurt applications
 
 #### OpenAI Client (`OpenAIClient`)
-- **Structured Extraction**: Uses OpenAI's structured outputs with Pydantic schemas for reliable job parsing
-- **extract_job_json()**: Extracts title, company, location, salary, must-haves, nice-to-haves, screening questions
-- **tailor_resume()**: AI-powered analysis of resume coverage with suggestions for improvement
-- **Model**: Defaults to `gpt-4o-mini` (configurable via `JOB_ACE_LLM_MODEL`)
+
+**Extraction** (`extract_job_json`):
+- Uses GPT-4o-mini by default (fast, structured outputs via Pydantic schemas)
+- Extracts: title, company, location, salary, employment type, seniority
+- Categorizes: must-haves vs nice-to-haves, screening questions
+- Can upgrade to GPT-4o or GPT-5 for better accuracy
+
+**Tailoring** (`tailor_resume`):
+- Uses o1-mini by default (reasoning model for precision)
+- Performs detailed requirement-by-requirement analysis
+- Rates evidence strength (strong/moderate/weak/missing)
+- Identifies gaps and suggests specific improvements
+- Provides ATS keyword optimization
+- Can upgrade to o3-mini, o3, or GPT-5 for maximum reliability
 
 #### Stub Client (`StubLLMClient`)
 - **Development fallback**: Deterministic regex-based extraction
@@ -163,13 +184,21 @@ Supports both **OpenAI** (production) and **StubLLMClient** (development/testing
 - **Limited accuracy**: Simple pattern matching, no semantic understanding
 
 #### Configuration
-The `get_llm_client()` factory function automatically selects the client:
-- **OpenAI used when**: API key is set AND model != "stub-model"
-- **Stub used when**: No API key OR model == "stub-model"
+
+The `get_llm_client(settings, task)` factory selects the appropriate model:
+- `task="extraction"` → Uses `llm_extraction_model` setting
+- `task="tailoring"` → Uses `llm_tailoring_model` setting
+- Falls back to StubLLMClient if no API key or model == "stub-model"
 
 Environment variables:
 - `OPENAI_API_KEY`: OpenAI API key (also checks `JOB_ACE_OPENAI_API_KEY`)
-- `JOB_ACE_LLM_MODEL`: Model name (default: `gpt-4o-mini`, use `stub-model` for stub)
+- `JOB_ACE_LLM_EXTRACTION_MODEL`: Model for job extraction (default: `gpt-4o-mini`)
+- `JOB_ACE_LLM_TAILORING_MODEL`: Model for resume tailoring (default: `o1-mini`)
+
+**Recommended models by budget:**
+- **Budget**: extraction=gpt-4o-mini, tailoring=o1-mini
+- **Quality**: extraction=gpt-4o, tailoring=o3-mini
+- **Best**: extraction=gpt-4o or gpt-5, tailoring=o3 or gpt-5
 
 ### Browser Automation (backend/browser/)
 
@@ -218,8 +247,11 @@ Settings via environment variables (prefix `JOB_ACE_`) or `.env` file:
 - `JOB_ACE_DATABASE_URL`: Database connection (default: `sqlite:///./db.sqlite3`)
 - `JOB_ACE_PLAYWRIGHT_HEADLESS`: Browser headless mode (default: `true`). Set to `false` for debugging or Cloudflare challenges.
 - `JOB_ACE_INTAKE_USER_AGENT`: User-Agent string for job fetching (default: Chrome 121 on Windows). Update to latest Chrome UA if sites start blocking.
-- `JOB_ACE_LLM_MODEL`: LLM model identifier (default: `gpt-4o-mini`). Use `stub-model` to disable OpenAI.
-- `OPENAI_API_KEY` or `JOB_ACE_OPENAI_API_KEY`: OpenAI API key for LLM features
+- **LLM Configuration** (dual-model strategy):
+  - `OPENAI_API_KEY` or `JOB_ACE_OPENAI_API_KEY`: OpenAI API key
+  - `JOB_ACE_LLM_EXTRACTION_MODEL`: Model for job parsing (default: `gpt-4o-mini`)
+  - `JOB_ACE_LLM_TAILORING_MODEL`: Model for resume tailoring (default: `o1-mini`)
+  - Use `stub-model` for either to disable OpenAI and use regex fallback
 
 ## Important Implementation Details
 

@@ -22,7 +22,7 @@ class IntakeService:
         self.db = db
         self.artifacts = ArtifactManager(db)
         self.settings = get_settings()
-        self.llm = get_llm_client(self.settings)
+        self.llm = get_llm_client(self.settings, task="extraction")
 
     def run(self, url: str, force: bool = False) -> models.JobPosting:
         existing = self.db.scalar(select(models.JobPosting).where(models.JobPosting.url == url))

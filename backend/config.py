@@ -9,7 +9,13 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     data_root: Path = Path("artifacts")
     database_url: str = "sqlite:///./db.sqlite3"
-    llm_model: str = "gpt-4o-mini"
+
+    # LLM Models - separate configs for different tasks
+    # Extraction: gpt-4o-mini (fast, cheap), gpt-4o (better), gpt-5 (future)
+    # Tailoring: o1-mini (reasoning), o3-mini (better reasoning), o3/gpt-5 (best)
+    llm_extraction_model: str = "gpt-4o-mini"  # Job extraction: fast, structured outputs
+    llm_tailoring_model: str = "o1-mini"  # Resume tailoring: reasoning, precision
+
     openai_api_key: str = ""
     playwright_headless: bool = True
     intake_user_agent: str = (

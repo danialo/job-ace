@@ -79,9 +79,17 @@ class ResumeAnalysisSchema(BaseModel):
 class OpenAIClient:
     """OpenAI-powered LLM client for job extraction and resume tailoring."""
 
+    # Reasoning models that don't support structured outputs or use different API patterns
+    # Note: GPT-5 support TBD when released - may support structured outputs
+    REASONING_MODELS = {"o1-mini", "o1-preview", "o1", "o3-mini", "o3"}
+
+    # Models that support structured outputs (response_format parameter)
+    STRUCTURED_OUTPUT_MODELS = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-5"}  # gpt-5 assumed
+
     def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
         self.client = OpenAI(api_key=api_key)
         self.model = model
+        self.is_reasoning_model = model in self.REASONING_MODELS
 
     def extract_job_json(self, text: str) -> JDExtraction:
         """Extract structured job data using OpenAI with structured outputs."""
@@ -122,47 +130,70 @@ extract preferred qualifications and bonus skills."""
         )
 
     def tailor_resume(self, jd: Dict, allowed_blocks: List[Dict]) -> Dict:
-        """Tailor resume using OpenAI to analyze coverage and relevance."""
+        """Tailor resume using OpenAI to analyze coverage and relevance.
+
+        Uses reasoning models (o1/o3) for deep analysis, or GPT-4o/5 for speed.
+        """
         resume_sections = [f"Block {block['id']}: {block['text'].strip()}" for block in allowed_blocks]
         resume_text = "\n\n".join(resume_sections)
 
         keywords = jd.get("must_haves", []) + jd.get("nice_to_haves", [])
 
-        # Use OpenAI to analyze coverage
-        prompt = f"""Analyze how well this resume covers the job requirements.
+        # Build comprehensive analysis prompt
+        prompt = f"""You are an expert resume analyst and career coach. Analyze how well this resume matches the job requirements for precision and reliability.
 
-Job Title: {jd.get('title', 'Unknown')}
+JOB POSTING:
+Title: {jd.get('title', 'Unknown')}
+Company: {jd.get('company', 'Unknown')}
+Location: {jd.get('location', 'Unknown')}
 
-Required Skills (must_haves): {', '.join(jd.get('must_haves', []))}
-Preferred Skills (nice_to_haves): {', '.join(jd.get('nice_to_haves', []))}
+REQUIRED QUALIFICATIONS (must_haves):
+{chr(10).join(f"- {req}" for req in jd.get('must_haves', []))}
 
-Resume Content:
+PREFERRED QUALIFICATIONS (nice_to_haves):
+{chr(10).join(f"- {pref}" for pref in jd.get('nice_to_haves', []))}
+
+RESUME BLOCKS AVAILABLE:
 {resume_text}
 
-For each keyword, determine:
-1. Which resume blocks (by ID) support that keyword
-2. Whether the keyword is adequately covered
-3. Suggestions for improving coverage
-"""
+TASK:
+Perform a detailed analysis:
+1. For EACH requirement (must-have and nice-to-have), identify which resume block(s) provide evidence
+2. Rate the strength of evidence (strong/moderate/weak/missing)
+3. Identify gaps where requirements are not addressed
+4. Suggest specific improvements or additions
+5. Assess ATS keyword coverage and recommend optimizations
+6. Provide an overall match score (0-100%)
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an expert resume analyst helping to optimize resumes for ATS systems."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.3,
-        )
+Be extremely thorough and precise - this directly impacts job application success."""
+
+        # Use appropriate API pattern based on model type
+        if self.is_reasoning_model:
+            # Reasoning models: no system message, no temperature
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}]
+            )
+        else:
+            # Standard models: system message + temperature control
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert resume analyst helping to optimize resumes for ATS systems and hiring managers. Provide precise, actionable analysis."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.2,  # Low temperature for consistency
+            )
 
         analysis = response.choices[0].message.content
 
-        # Simple coverage calculation (improved from stub)
+        # Calculate coverage (keyword matching)
         coverage = []
         uncovered = []
         for keyword in keywords:
@@ -186,16 +217,28 @@ For each keyword, determine:
                 {"block_id": block["id"], "changes": "included"} for block in allowed_blocks
             ],
             "ai_analysis": analysis,
+            "model_used": self.model,
         }
 
 
-def get_llm_client(settings: Settings):
-    """Factory function to get the appropriate LLM client based on settings."""
+def get_llm_client(settings: Settings, task: str = "extraction"):
+    """Factory function to get the appropriate LLM client based on settings and task.
+
+    Args:
+        settings: Application settings
+        task: "extraction" (job parsing) or "tailoring" (resume analysis)
+    """
     # If OpenAI API key is set (from JOB_ACE_OPENAI_API_KEY or OPENAI_API_KEY env var)
     api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
 
-    if api_key and settings.llm_model != "stub-model":
-        return OpenAIClient(api_key=api_key, model=settings.llm_model)
+    # Select model based on task
+    if task == "tailoring":
+        model = settings.llm_tailoring_model
+    else:  # extraction
+        model = settings.llm_extraction_model
+
+    if api_key and model != "stub-model":
+        return OpenAIClient(api_key=api_key, model=model)
     else:
         return StubLLMClient()
 
