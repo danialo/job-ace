@@ -94,3 +94,46 @@ class UpdateBlockResponse(BaseModel):
 class DeleteBlockResponse(BaseModel):
     id: int
     message: str = "Block deleted successfully"
+
+
+class ParsedBlock(BaseModel):
+    """A parsed resume block ready for preview."""
+    category: str
+    tags: List[str]
+    content: str
+
+
+class ResumeSectionInfo(BaseModel):
+    """Information about a detected resume section."""
+    name: str
+    category: str
+    start_char: int
+    end_char: int
+    estimated_tokens: int
+
+
+class ParseResumeResponse(BaseModel):
+    """Response from parsing a resume (preview, not saved yet)."""
+    blocks: List[ParsedBlock]
+    metadata: dict
+    sections: Optional[List[ResumeSectionInfo]] = None
+    parsing_summary: Optional[dict] = None
+
+
+class ConfirmBlockData(BaseModel):
+    """A block to be confirmed and saved to database."""
+    category: str
+    tags: List[str]
+    content: str
+
+
+class ConfirmResumeBlocksRequest(BaseModel):
+    """Request to confirm and save parsed resume blocks."""
+    blocks: List[ConfirmBlockData]
+
+
+class ConfirmResumeBlocksResponse(BaseModel):
+    """Response after confirming and saving blocks."""
+    message: str
+    blocks_saved: int
+    block_ids: List[int]

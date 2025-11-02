@@ -13,11 +13,14 @@ from backend.db.session import get_db, init_db
 from backend.models import models
 from backend.models.schemas import (
     ArtifactPathResponse,
+    ConfirmResumeBlocksRequest,
+    ConfirmResumeBlocksResponse,
     DeleteBlockResponse,
     IntakeRequest,
     IntakeResponse,
     LogSubmitRequest,
     LogSubmitResponse,
+    ParseResumeResponse,
     PrefillPlanRequest,
     PrefillPlanResponse,
     TailorRequest,
@@ -215,6 +218,123 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
         # Clean up temporary file
         if tmp_path.exists():
             tmp_path.unlink()
+
+
+@app.post("/parse-resume", response_model=ParseResumeResponse)
+async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_db)) -> ParseResumeResponse:
+    """Parse a resume file and return blocks for preview (does NOT save to database)."""
+    # Validate file extension
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in ['.pdf', '.docx', '.doc', '.txt']:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format: {file_ext}. Please upload PDF, DOCX, or TXT."
+        )
+
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
+        content = await file.read()
+        tmp_file.write(content)
+        tmp_path = Path(tmp_file.name)
+
+    try:
+        # Get LLM client for resume parsing
+        from backend.services.llm import get_llm_client
+        from backend.config import get_settings
+        settings = get_settings()
+        llm_client = get_llm_client(settings, task="resume_parsing")
+
+        # Parse resume using ResumeConverter with LLM
+        converter = ResumeConverter(llm_client=llm_client)
+
+        # Extract text based on file type
+        if file_ext == '.txt':
+            text = tmp_path.read_text(encoding='utf-8')
+        elif file_ext == '.pdf':
+            text = converter._extract_pdf_text(tmp_path)
+        else:  # .docx or .doc
+            text = converter._extract_docx_text(tmp_path)
+
+        # Parse text into structured blocks using LLM (multi-stage)
+        resume_data = converter.parse_text_resume(text)
+        blocks_data = resume_data.get("blocks", [])
+
+        if not blocks_data:
+            raise HTTPException(status_code=400, detail="No resume blocks could be extracted from the file")
+
+        # Convert blocks to response format (preview only, not saved)
+        from backend.models.schemas import ParsedBlock, ResumeSectionInfo
+        parsed_blocks = [
+            ParsedBlock(
+                category=block.get("category", "other"),
+                tags=block.get("tags", []),
+                content=block.get("content", ""),
+            )
+            for block in blocks_data
+        ]
+
+        # Convert section info if available
+        sections_info = None
+        if resume_data.get("sections"):
+            sections_info = [
+                ResumeSectionInfo(
+                    name=section["name"],
+                    category=section["category"],
+                    start_char=section["start_char"],
+                    end_char=section["end_char"],
+                    estimated_tokens=section["estimated_tokens"],
+                )
+                for section in resume_data["sections"]
+            ]
+
+        return ParseResumeResponse(
+            blocks=parsed_blocks,
+            metadata=resume_data.get("metadata", {}),
+            sections=sections_info,
+            parsing_summary=resume_data.get("parsing_summary"),
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing resume: {str(e)}")
+
+    finally:
+        # Clean up temporary file
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+@app.post("/confirm-resume-blocks", response_model=ConfirmResumeBlocksResponse, status_code=status.HTTP_201_CREATED)
+def confirm_resume_blocks(payload: ConfirmResumeBlocksRequest, db: Session = Depends(get_db)) -> ConfirmResumeBlocksResponse:
+    """Confirm and save parsed resume blocks to database."""
+    if not payload.blocks:
+        raise HTTPException(status_code=400, detail="No blocks provided")
+
+    try:
+        block_ids = []
+        for block_data in payload.blocks:
+            block = models.ResumeBlock(
+                category=block_data.category,
+                tags=",".join(block_data.tags),
+                text=block_data.content,
+            )
+            db.add(block)
+            db.flush()  # Flush to get the ID
+            block_ids.append(block.id)
+
+        db.commit()
+
+        return ConfirmResumeBlocksResponse(
+            message="Resume blocks saved successfully",
+            blocks_saved=len(block_ids),
+            block_ids=block_ids,
+        )
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error saving blocks: {str(e)}")
 
 
 @app.get("/applications")

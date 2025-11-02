@@ -261,6 +261,29 @@
         </div>
     </div>
 
+    <!-- Preview Resume Blocks Modal -->
+    <div id="preview-blocks-modal" class="modal hidden">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>Preview Parsed Resume Blocks</h3>
+                <button class="modal-close" onclick="closePreviewModal()">&times;</button>
+            </div>
+
+            <div id="preview-metadata" class="preview-metadata"></div>
+
+            <div id="preview-parsing-info" class="preview-info"></div>
+
+            <div id="preview-blocks-list" class="preview-blocks-list">
+                <!-- Blocks will be populated dynamically -->
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closePreviewModal()">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="confirmBlocks()">Confirm & Save Blocks</button>
+            </div>
+        </div>
+    </div>
+
     <footer>
         <p>Job Ace v0.1.0 - API Status: <span id="api-status" class="status-indicator">Checking...</span></p>
     </footer>

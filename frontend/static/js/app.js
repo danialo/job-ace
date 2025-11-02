@@ -249,7 +249,10 @@ async function handleTailor(e) {
     }
 }
 
-// Resume Upload Handler
+// Store parsed resume data globally for preview modal
+let parsedResumeData = null;
+
+// Resume Upload Handler - NEW: Preview flow before saving
 async function handleResumeUpload(e) {
     e.preventDefault();
 
@@ -264,15 +267,207 @@ async function handleResumeUpload(e) {
     }
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span class="spinner"></span> Uploading & Processing...';
+    submitBtn.innerHTML = '<span class="spinner"></span> Parsing Resume...';
 
     try {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch(`${API_BASE}/upload-resume`, {
+        // NEW: Use /parse-resume endpoint (preview only, doesn't save)
+        const response = await fetch(`${API_BASE}/parse-resume`, {
             method: 'POST',
             body: formData
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // Store parsed data globally
+            parsedResumeData = data;
+
+            // Hide upload result
+            resultEl.classList.add('hidden');
+
+            // Show preview modal
+            showPreviewModal(data);
+
+            // Reset form
+            document.getElementById('upload-resume-form').reset();
+        } else {
+            const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to parse resume';
+            showResult(resultEl, 'error', `Error: ${errorMsg}`);
+        }
+    } catch (error) {
+        showResult(resultEl, 'error', `Network error: ${error.message}`);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Upload & Load Resume';
+    }
+}
+
+// Show Preview Modal with parsed resume blocks
+function showPreviewModal(data) {
+    const modal = document.getElementById('preview-blocks-modal');
+    const metadataEl = document.getElementById('preview-metadata');
+    const parsingInfoEl = document.getElementById('preview-parsing-info');
+    const blocksListEl = document.getElementById('preview-blocks-list');
+
+    // Display metadata
+    if (data.metadata && Object.keys(data.metadata).length > 0) {
+        let metadataHTML = '<h4>Contact Information</h4>';
+        for (const [key, value] of Object.entries(data.metadata)) {
+            if (value) {
+                metadataHTML += `<p><strong>${key}:</strong> ${value}</p>`;
+            }
+        }
+        metadataEl.innerHTML = metadataHTML;
+        metadataEl.style.display = 'block';
+    } else {
+        metadataEl.style.display = 'none';
+    }
+
+    // Display parsing info
+    if (data.parsing_summary) {
+        const summary = data.parsing_summary;
+        parsingInfoEl.innerHTML = `
+            <p><strong>Parsing Summary:</strong></p>
+            <p>Total Sections: ${summary.total_sections || 0}</p>
+            <p>Total Blocks: ${summary.total_blocks || 0}</p>
+            <p>Model Used: ${summary.model_used || 'N/A'}</p>
+        `;
+        parsingInfoEl.style.display = 'block';
+    } else {
+        parsingInfoEl.style.display = 'none';
+    }
+
+    // Display blocks
+    let blocksHTML = '';
+    data.blocks.forEach((block, index) => {
+        blocksHTML += `
+            <div class="preview-block-item" data-index="${index}">
+                <div class="preview-block-header">
+                    <div class="preview-block-meta">
+                        <div class="preview-block-category">${block.category}</div>
+                        <div class="preview-block-tags">
+                            ${block.tags.map(tag => `<span class="preview-block-tag">${tag}</span>`).join('')}
+                        </div>
+                    </div>
+                    <div class="preview-block-actions">
+                        <button class="btn-icon" onclick="editPreviewBlock(${index})" title="Edit">✏️ Edit</button>
+                        <button class="btn-icon btn-delete" onclick="deletePreviewBlock(${index})" title="Delete">🗑️ Delete</button>
+                    </div>
+                </div>
+                <div class="preview-block-content" id="block-content-${index}">${block.content}</div>
+            </div>
+        `;
+    });
+
+    blocksListEl.innerHTML = blocksHTML;
+
+    // Show modal
+    modal.classList.remove('hidden');
+}
+
+// Close Preview Modal
+function closePreviewModal() {
+    const modal = document.getElementById('preview-blocks-modal');
+    modal.classList.add('hidden');
+    parsedResumeData = null;
+}
+
+// Delete a block from preview (doesn't affect database, only preview)
+function deletePreviewBlock(index) {
+    if (!parsedResumeData) return;
+
+    if (confirm('Remove this block from the preview?')) {
+        parsedResumeData.blocks.splice(index, 1);
+        showPreviewModal(parsedResumeData);
+    }
+}
+
+// Edit a block in preview (inline editing)
+function editPreviewBlock(index) {
+    if (!parsedResumeData) return;
+
+    const block = parsedResumeData.blocks[index];
+    const blockEl = document.querySelector(`.preview-block-item[data-index="${index}"]`);
+    const contentEl = document.getElementById(`block-content-${index}`);
+
+    // Create inline editing form
+    const editFormHTML = `
+        <div class="inline-edit-form">
+            <div class="form-group">
+                <label>Category:</label>
+                <select id="edit-category-${index}" class="inline-edit-input">
+                    <option value="summary" ${block.category === 'summary' ? 'selected' : ''}>Summary</option>
+                    <option value="experience" ${block.category === 'experience' ? 'selected' : ''}>Experience</option>
+                    <option value="education" ${block.category === 'education' ? 'selected' : ''}>Education</option>
+                    <option value="skills" ${block.category === 'skills' ? 'selected' : ''}>Skills</option>
+                    <option value="projects" ${block.category === 'projects' ? 'selected' : ''}>Projects</option>
+                    <option value="certifications" ${block.category === 'certifications' ? 'selected' : ''}>Certifications</option>
+                    <option value="awards" ${block.category === 'awards' ? 'selected' : ''}>Awards</option>
+                    <option value="other" ${block.category === 'other' ? 'selected' : ''}>Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Tags (comma-separated):</label>
+                <input type="text" id="edit-tags-${index}" class="inline-edit-input" value="${block.tags.join(', ')}">
+            </div>
+            <div class="form-group">
+                <label>Content:</label>
+                <textarea id="edit-content-${index}" class="inline-edit-input" rows="10">${block.content}</textarea>
+            </div>
+            <div class="inline-edit-actions">
+                <button class="btn btn-secondary" onclick="cancelEditPreviewBlock(${index})">Cancel</button>
+                <button class="btn btn-primary" onclick="saveEditPreviewBlock(${index})">Save</button>
+            </div>
+        </div>
+    `;
+
+    contentEl.innerHTML = editFormHTML;
+}
+
+// Cancel editing a block in preview
+function cancelEditPreviewBlock(index) {
+    if (!parsedResumeData) return;
+    showPreviewModal(parsedResumeData);
+}
+
+// Save edited block in preview
+function saveEditPreviewBlock(index) {
+    if (!parsedResumeData) return;
+
+    const category = document.getElementById(`edit-category-${index}`).value;
+    const tagsInput = document.getElementById(`edit-tags-${index}`).value;
+    const content = document.getElementById(`edit-content-${index}`).value;
+
+    // Update the block data
+    parsedResumeData.blocks[index] = {
+        category: category,
+        tags: tagsInput.split(',').map(t => t.trim()).filter(t => t),
+        content: content
+    };
+
+    // Re-render preview
+    showPreviewModal(parsedResumeData);
+}
+
+// Confirm and save blocks to database
+async function confirmBlocks() {
+    if (!parsedResumeData || !parsedResumeData.blocks || parsedResumeData.blocks.length === 0) {
+        alert('No blocks to save');
+        return;
+    }
+
+    const confirmBtn = document.querySelector('#preview-blocks-modal .btn-primary');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner"></span> Saving...';
+
+    try {
+        const response = await fetch(`${API_BASE}/confirm-resume-blocks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blocks: parsedResumeData.blocks })
         });
 
         const data = await response.json();
@@ -281,15 +476,16 @@ async function handleResumeUpload(e) {
             // Set cookie to track that user has uploaded data
             setCookie('jobace_has_resume', 'true');
 
+            // Close preview modal
+            closePreviewModal();
+
+            // Show success message
+            const resultEl = document.getElementById('upload-result');
             showResult(resultEl, 'success', `
-                <strong>Resume Uploaded Successfully!</strong>
-                <br>Filename: ${data.filename}
-                <br>Blocks Loaded: ${data.blocks_loaded}
+                <strong>Resume Blocks Saved Successfully!</strong>
+                <br>Blocks Saved: ${data.blocks_saved}
                 <br>Block IDs: ${data.block_ids.join(', ')}
-                ${data.metadata.name ? `<br>Name: ${data.metadata.name}` : ''}
-                ${data.metadata.email ? `<br>Email: ${data.metadata.email}` : ''}
             `);
-            document.getElementById('upload-resume-form').reset();
 
             // Refresh blocks list and auto-select the new blocks
             await loadBlocks();
@@ -301,14 +497,14 @@ async function handleResumeUpload(e) {
                 tailorTab.click();
             }
         } else {
-            const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to upload resume';
-            showResult(resultEl, 'error', `Error: ${errorMsg}`);
+            const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to save blocks';
+            alert(`Error: ${errorMsg}`);
         }
     } catch (error) {
-        showResult(resultEl, 'error', `Network error: ${error.message}`);
+        alert(`Network error: ${error.message}`);
     } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Upload & Load Resume';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Confirm & Save Blocks';
     }
 }
 
