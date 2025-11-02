@@ -644,8 +644,19 @@ function displayJobs() {
     `).join('');
 }
 
-// Load Blocks
+// Load Blocks - Only if cookie indicates user has uploaded resume
 async function loadBlocks() {
+    // Check if user has uploaded a resume (cookie-based)
+    const hasResume = getCookie('jobace_has_resume');
+
+    if (!hasResume) {
+        // No cookie = no resume uploaded, show empty state
+        blocks = [];
+        displayBlocks();
+        return;
+    }
+
+    // Cookie exists, load blocks from database
     try {
         const response = await fetch(`${API_BASE}/blocks`);
         if (response.ok) {
