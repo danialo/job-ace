@@ -75,3 +75,22 @@ class LogSubmitResponse(BaseModel):
 
 class ArtifactPathResponse(BaseModel):
     path: Path
+
+
+class UpdateBlockRequest(BaseModel):
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    text: Optional[str] = None
+
+
+class UpdateBlockResponse(BaseModel):
+    id: int
+    category: str
+    tags: str
+    text: str
+    message: str = "Block updated successfully"
+
+
+class DeleteBlockResponse(BaseModel):
+    id: int
+    message: str = "Block deleted successfully"

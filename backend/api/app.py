@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+import tempfile
+
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -11,6 +13,7 @@ from backend.db.session import get_db, init_db
 from backend.models import models
 from backend.models.schemas import (
     ArtifactPathResponse,
+    DeleteBlockResponse,
     IntakeRequest,
     IntakeResponse,
     LogSubmitRequest,
@@ -19,10 +22,13 @@ from backend.models.schemas import (
     PrefillPlanResponse,
     TailorRequest,
     TailorResponse,
+    UpdateBlockRequest,
+    UpdateBlockResponse,
 )
 from backend.services.artifacts import ArtifactManager
 from backend.services.intake import IntakeService
 from backend.services.prefill import PrefillPlanner
+from backend.services.resume_converter import ResumeConverter
 from backend.services.submission import SubmissionLogger
 from backend.services.tailor import TailorService
 
@@ -128,10 +134,87 @@ def list_blocks(db: Session = Depends(get_db)) -> list[dict]:
             "id": block.id,
             "category": block.category,
             "tags": block.tags.split(",") if block.tags else [],
-            "text": block.text[:100] + "..." if len(block.text) > 100 else block.text,
+            "text": block.text,
         }
         for block in blocks
     ]
+
+
+@app.post("/upload-resume", status_code=status.HTTP_201_CREATED)
+async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_db)) -> dict:
+    """Upload and parse a resume file, automatically loading blocks into database."""
+    # Validate file extension
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in ['.pdf', '.docx', '.doc', '.txt']:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format: {file_ext}. Please upload PDF, DOCX, or TXT."
+        )
+
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
+        content = await file.read()
+        tmp_file.write(content)
+        tmp_path = Path(tmp_file.name)
+
+    try:
+        # Get LLM client for resume parsing (o3-mini)
+        from backend.services.llm import get_llm_client
+        from backend.config import get_settings
+        settings = get_settings()
+        llm_client = get_llm_client(settings, task="resume_parsing")
+
+        # Parse resume using ResumeConverter with LLM
+        converter = ResumeConverter(llm_client=llm_client)
+
+        # Extract text based on file type
+        if file_ext == '.txt':
+            text = tmp_path.read_text(encoding='utf-8')
+        elif file_ext == '.pdf':
+            text = converter._extract_pdf_text(tmp_path)
+        else:  # .docx or .doc
+            text = converter._extract_docx_text(tmp_path)
+
+        # Parse text into structured blocks using LLM
+        resume_data = converter.parse_text_resume(text)
+        blocks_data = resume_data.get("blocks", [])
+
+        if not blocks_data:
+            raise HTTPException(status_code=400, detail="No resume blocks could be extracted from the file")
+
+        # Load blocks into database
+        block_ids = []
+        for block_data in blocks_data:
+            block = models.ResumeBlock(
+                category=block_data.get("category"),
+                tags=",".join(block_data.get("tags", [])),
+                text=block_data.get("content", ""),  # Note: converter uses "content", DB uses "text"
+            )
+            db.add(block)
+            db.flush()  # Flush to get the ID
+            block_ids.append(block.id)
+
+        db.commit()
+
+        return {
+            "message": "Resume uploaded and blocks loaded successfully",
+            "filename": file.filename,
+            "blocks_loaded": len(block_ids),
+            "block_ids": block_ids,
+            "metadata": resume_data.get("metadata", {}),
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error processing resume: {str(e)}")
+
+    finally:
+        # Clean up temporary file
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 @app.get("/applications")
@@ -148,6 +231,55 @@ def list_applications(db: Session = Depends(get_db)) -> list[dict]:
         }
         for app in apps
     ]
+
+
+@app.put("/blocks/{block_id}", response_model=UpdateBlockResponse)
+def update_block(block_id: int, payload: UpdateBlockRequest, db: Session = Depends(get_db)) -> UpdateBlockResponse:
+    """Update a resume block."""
+    block = db.get(models.ResumeBlock, block_id)
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
+
+    # Update fields if provided
+    if payload.category is not None:
+        block.category = payload.category
+    if payload.tags is not None:
+        block.tags = payload.tags
+    if payload.text is not None:
+        block.text = payload.text
+
+    db.commit()
+    db.refresh(block)
+
+    return UpdateBlockResponse(
+        id=block.id,
+        category=block.category,
+        tags=block.tags,
+        text=block.text,
+    )
+
+
+@app.delete("/blocks/{block_id}", response_model=DeleteBlockResponse)
+def delete_block(block_id: int, db: Session = Depends(get_db)) -> DeleteBlockResponse:
+    """Delete a resume block."""
+    block = db.get(models.ResumeBlock, block_id)
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
+
+    db.delete(block)
+    db.commit()
+
+    return DeleteBlockResponse(id=block_id)
+
+
+@app.delete("/blocks")
+def delete_all_blocks(db: Session = Depends(get_db)) -> dict:
+    """Delete all resume blocks."""
+    count = db.query(models.ResumeBlock).count()
+    db.query(models.ResumeBlock).delete()
+    db.commit()
+
+    return {"deleted_count": count, "message": f"Deleted {count} resume blocks"}
 
 
 # Mount static files AFTER all API routes to avoid conflicts

@@ -15,14 +15,61 @@ NS = "http://job-ace.local/resume"
 class ResumeConverter:
     """Convert resumes from various formats to XML blocks."""
 
-    def __init__(self):
+    def __init__(self, llm_client=None):
         self.logger = logger.bind(service="resume_converter")
+        self.llm_client = llm_client
 
     def parse_text_resume(self, text: str) -> dict[str, Any]:
-        """Parse a text resume and extract structured data."""
-        self.logger.info("parsing_text_resume", length=len(text))
+        """Parse a text resume and extract structured data.
 
-        # Initialize structure
+        Uses LLM if available, falls back to regex-based parsing otherwise.
+        """
+        self.logger.info("parsing_text_resume", length=len(text), has_llm=self.llm_client is not None)
+
+        # Use LLM-based two-stage parsing if available
+        if self.llm_client:
+            try:
+                # Stage 1: Detect sections
+                sections = self.llm_client.detect_sections(text)
+                self.logger.info("sections_detected", section_count=len(sections))
+
+                # Stage 2: Parse each section into blocks
+                all_blocks = []
+                for section in sections:
+                    section_text = text[section["start_char"]:section["end_char"]]
+                    section_blocks = self.llm_client.parse_section(
+                        section_text,
+                        section["category"],
+                        section["name"]
+                    )
+                    all_blocks.extend(section_blocks)
+                    self.logger.info("section_parsed",
+                                    section=section["name"],
+                                    blocks_extracted=len(section_blocks))
+
+                # Extract metadata from first few lines (simple regex)
+                metadata = self._extract_metadata_from_text(text)
+
+                self.logger.info("llm_parsing_success",
+                                total_sections=len(sections),
+                                total_blocks=len(all_blocks))
+
+                return {
+                    "metadata": metadata,
+                    "blocks": all_blocks,
+                    "sections": sections,  # Include section info for preview
+                    "parsing_summary": {
+                        "total_sections": len(sections),
+                        "total_blocks": len(all_blocks),
+                        "model_used": "multi-stage (gpt-4o-mini + gpt-4o)"
+                    }
+                }
+            except Exception as e:
+                self.logger.warning("llm_parsing_failed", error=str(e), falling_back_to_regex=True)
+                # Fall through to regex-based parsing
+
+        # Fallback: Regex-based parsing (old method)
+        self.logger.info("using_regex_parsing")
         resume_data = {
             "metadata": {},
             "blocks": []
@@ -85,6 +132,42 @@ class ResumeConverter:
             block_id += 1
 
         return resume_data
+
+    def _extract_metadata_from_text(self, text: str) -> dict[str, Any]:
+        """Extract basic metadata (name, email, phone, etc.) from resume text using regex."""
+        metadata = {}
+        lines = text.strip().split('\n')
+
+        # First few lines often contain contact info
+        for i, line in enumerate(lines[:10]):
+            line = line.strip()
+            if not line:
+                continue
+
+            # Email
+            email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', line)
+            if email_match and "email" not in metadata:
+                metadata["email"] = email_match.group()
+
+            # Phone
+            phone_match = re.search(r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', line)
+            if phone_match and "phone" not in metadata:
+                metadata["phone"] = phone_match.group()
+
+            # LinkedIn
+            if 'linkedin.com' in line.lower() and "linkedin" not in metadata:
+                metadata["linkedin"] = line
+
+            # GitHub
+            if 'github.com' in line.lower() and "github" not in metadata:
+                metadata["github"] = line
+
+            # Name (usually first non-empty line)
+            if i == 0 or (i == 1 and not lines[0].strip()):
+                if "name" not in metadata:
+                    metadata["name"] = line
+
+        return metadata
 
     def _identify_sections(self, text: str) -> dict[str, str]:
         """Identify resume sections based on common headers."""

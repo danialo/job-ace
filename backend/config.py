@@ -11,10 +11,12 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./db.sqlite3"
 
     # LLM Models - separate configs for different tasks
-    # Extraction: gpt-4o-mini (fast, cheap), gpt-4o (better), gpt-5 (future)
-    # Tailoring: o1-mini (reasoning), o3-mini (better reasoning), o3/gpt-5 (best)
+    # Extraction: gpt-4o-mini (fast, cheap), gpt-4o (better)
+    # Resume Parsing: gpt-4o (fast + quality), o3-mini (slow but best reasoning)
+    # Tailoring: gpt-4o (reliable), o3-mini (reasoning), o3 (overkill)
     llm_extraction_model: str = "gpt-4o-mini"  # Job extraction: fast, structured outputs
-    llm_tailoring_model: str = "o1-mini"  # Resume tailoring: reasoning, precision
+    llm_resume_parsing_model: str = "gpt-4o"  # Resume parsing: fast and accurate
+    llm_tailoring_model: str = "gpt-4o"  # Resume tailoring: reliable quality analysis
 
     openai_api_key: str = ""
     playwright_headless: bool = True

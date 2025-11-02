@@ -11,6 +11,7 @@
         <header>
             <h1>🎯 Job Ace</h1>
             <p class="subtitle">Local-First Job Application Assistant</p>
+            <button id="reset-data-btn" class="btn-reset" title="Clear all resume blocks and reset data">Reset Data</button>
         </header>
 
         <nav class="tabs">
@@ -73,14 +74,15 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="resume-blocks">Resume Blocks (comma-separated IDs)</label>
-                        <input
-                            type="text"
-                            id="resume-blocks"
-                            placeholder="1,2,3,4"
-                            required
-                        >
-                        <small class="help-text">Enter resume block IDs to include in your tailored resume</small>
+                        <label>Resume Blocks</label>
+                        <div class="block-selector-controls">
+                            <button type="button" class="btn-select-action" id="select-all-blocks">Select All</button>
+                            <button type="button" class="btn-select-action" id="deselect-all-blocks">Deselect All</button>
+                        </div>
+                        <div id="block-selector" class="block-selector">
+                            <p class="text-muted">No blocks available. Upload a resume above to get started.</p>
+                        </div>
+                        <small class="help-text">Select resume blocks to include in your tailored resume</small>
                     </div>
 
                     <div class="form-group">
@@ -99,9 +101,31 @@
             </div>
 
             <div class="card">
+                <h3>Upload Resume</h3>
+                <p>Upload your resume to automatically extract and load resume blocks.</p>
+
+                <form id="upload-resume-form">
+                    <div class="form-group">
+                        <label for="resume-file">Resume File</label>
+                        <input
+                            type="file"
+                            id="resume-file"
+                            accept=".pdf,.docx,.doc,.txt"
+                            required
+                        >
+                        <small class="help-text">Supported formats: PDF, DOCX, TXT</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Upload & Load Resume</button>
+                </form>
+
+                <div id="upload-result" class="result-box hidden"></div>
+            </div>
+
+            <div class="card">
                 <h3>Resume Blocks</h3>
                 <div id="blocks-list" class="blocks-list">
-                    <p class="text-muted">Load resume blocks using: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>
+                    <p class="text-muted">Upload a resume above or use CLI: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>
                 </div>
             </div>
         </div>
@@ -196,6 +220,44 @@
                     <p class="text-muted">No applications logged yet.</p>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Edit Block Modal -->
+    <div id="edit-block-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Edit Resume Block</h3>
+                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+            </div>
+            <form id="edit-block-form">
+                <input type="hidden" id="edit-block-id">
+                <div class="form-group">
+                    <label for="edit-block-category">Category</label>
+                    <select id="edit-block-category" required>
+                        <option value="summary">Summary</option>
+                        <option value="experience">Experience</option>
+                        <option value="education">Education</option>
+                        <option value="skills">Skills</option>
+                        <option value="projects">Projects</option>
+                        <option value="certifications">Certifications</option>
+                        <option value="awards">Awards</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit-block-tags">Tags (comma-separated)</label>
+                    <input type="text" id="edit-block-tags" placeholder="python, aws, docker">
+                </div>
+                <div class="form-group">
+                    <label for="edit-block-text">Block Text</label>
+                    <textarea id="edit-block-text" rows="10" required></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
         </div>
     </div>
 
