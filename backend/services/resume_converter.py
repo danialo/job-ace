@@ -35,10 +35,28 @@ class ResumeConverter:
 
                 # Stage 2: Parse each section into blocks
                 all_blocks = []
-                for section in sections:
-                    section_text = text[section["start_char"]:section["end_char"]]
+                for i, section in enumerate(sections):
+                    # Extract section text using Python string search instead of LLM-provided positions
+                    # (LLMs are bad at counting characters)
+                    section_start = text.find(section["name"])
+                    if section_start == -1:
+                        # Fallback: use LLM positions if we can't find the section name
+                        section_text = text[section["start_char"]:section["end_char"]]
+                    else:
+                        # Find where this section ends (next section starts, or end of text)
+                        if i + 1 < len(sections):
+                            next_section_name = sections[i + 1]["name"]
+                            next_section_start = text.find(next_section_name, section_start + len(section["name"]))
+                            if next_section_start != -1:
+                                section_text = text[section_start:next_section_start]
+                            else:
+                                section_text = text[section_start:]
+                        else:
+                            # Last section: take everything to the end
+                            section_text = text[section_start:]
+
                     section_blocks = self.llm_client.parse_section(
-                        section_text,
+                        section_text.strip(),
                         section["category"],
                         section["name"]
                     )
