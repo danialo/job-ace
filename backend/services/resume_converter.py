@@ -30,8 +30,22 @@ class ResumeConverter:
         if self.llm_client:
             try:
                 # Stage 1: Detect sections
-                sections = self.llm_client.detect_sections(text)
-                self.logger.info("sections_detected", section_count=len(sections))
+                raw_sections = self.llm_client.detect_sections(text)
+
+                # Merge adjacent sections with the same category (e.g., "Key Skills" + "Technical Proficiencies" → one "Skills" section)
+                sections = []
+                for section in raw_sections:
+                    if sections and sections[-1]["category"] == section["category"]:
+                        # Merge with previous section of same category
+                        sections[-1]["name"] += f" & {section['name']}"
+                        sections[-1]["end_char"] = section["end_char"]
+                        sections[-1]["estimated_tokens"] += section["estimated_tokens"]
+                    else:
+                        sections.append(section)
+
+                self.logger.info("sections_detected",
+                                section_count=len(sections),
+                                merged_from=len(raw_sections))
 
                 # Stage 2: Parse each section into blocks
                 all_blocks = []
