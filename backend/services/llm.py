@@ -560,6 +560,69 @@ class StubLLMClient:
             ],
         }
 
+    def detect_sections(self, text: str) -> List[Dict[str, Any]]:
+        """Stub implementation: Simple regex-based section detection."""
+        sections = []
+        lines = text.split('\n')
+
+        # Common section headers
+        section_patterns = [
+            (r'(?i)^(professional\s+)?summary', 'summary'),
+            (r'(?i)^(work\s+)?experience', 'experience'),
+            (r'(?i)^education', 'education'),
+            (r'(?i)^skills?', 'skills'),
+            (r'(?i)^projects?', 'projects'),
+            (r'(?i)^certifications?', 'certifications'),
+            (r'(?i)^awards?', 'awards'),
+        ]
+
+        current_pos = 0
+        for i, line in enumerate(lines):
+            for pattern, category in section_patterns:
+                if re.match(pattern, line.strip()):
+                    # Estimate position
+                    char_pos = sum(len(l) + 1 for l in lines[:i])  # +1 for newline
+                    sections.append({
+                        'name': line.strip(),
+                        'category': category,
+                        'start_char': char_pos,
+                        'end_char': char_pos + 500,  # Rough estimate
+                        'estimated_tokens': 100,
+                    })
+                    break
+
+        # If no sections detected, treat whole text as one section
+        if not sections:
+            sections.append({
+                'name': 'Resume Content',
+                'category': 'other',
+                'start_char': 0,
+                'end_char': len(text),
+                'estimated_tokens': len(text) // 4,
+            })
+
+        return sections
+
+    def parse_section(self, section_text: str, category: str, section_name: str) -> List[Dict[str, Any]]:
+        """Stub implementation: Simple text-based parsing."""
+        # For stub, just create one block per section
+        tags = []
+
+        # Extract simple tags (words that look like technologies)
+        tech_keywords = ['python', 'java', 'javascript', 'react', 'aws', 'docker', 'kubernetes',
+                        'sql', 'nosql', 'git', 'linux', 'api', 'rest', 'graphql', 'typescript']
+
+        text_lower = section_text.lower()
+        for keyword in tech_keywords:
+            if keyword in text_lower:
+                tags.append(keyword)
+
+        return [{
+            'category': category,
+            'tags': tags[:10],  # Limit to 10 tags
+            'content': section_text.strip(),
+        }]
+
     @staticmethod
     def _extract(pattern: re.Pattern, lines: List[str]) -> str | None:
         for line in lines:
