@@ -119,13 +119,15 @@ class SectionDetectionSchema(BaseModel):
 
 class SectionParsingSchema(BaseModel):
     """Schema for parsing a single section into blocks."""
-    blocks: List[ResumeBlock] = Field(description="""Blocks extracted from this section.
-    IMPORTANT:
-    - For experience: Each job should be a separate block
-    - For education: Each degree/institution should be a separate block
-    - For projects: Each project should be a separate block
-    - For summary/skills: Usually one block per section
-    - Include appropriate tags for filtering""")
+    blocks: List[ResumeBlock] = Field(description="""Blocks extracted from this section using VERBATIM text.
+    CRITICAL RULES:
+    - COPY EXACT TEXT from the resume - NO rewriting, summarizing, or paraphrasing
+    - For experience: Each job should be a separate block with ORIGINAL job description text
+    - For education: Each degree/institution should be a separate block with ORIGINAL education text
+    - For projects: Each project should be a separate block with ORIGINAL project description
+    - For summary/skills: Usually one block per section with ORIGINAL text
+    - Extract relevant tags for filtering (companies, technologies, skills)
+    - The content field must contain the EXACT text from the resume""")
 
 
 class OpenAIClient:
@@ -235,17 +237,26 @@ Return the sections in the order they appear in the resume."""
         """
         # Different instructions based on category
         if category == "experience":
-            instruction = "Split each job/position into its OWN separate block. Include company, title, dates, and responsibilities."
+            instruction = "Split each job/position into its OWN separate block. COPY THE EXACT TEXT AS-IS from the resume. DO NOT rewrite, summarize, or modify the text in any way."
         elif category == "education":
-            instruction = "Split each degree/institution into its OWN separate block. Include school, degree, dates, and relevant coursework."
+            instruction = "Split each degree/institution into its OWN separate block. COPY THE EXACT TEXT AS-IS from the resume. DO NOT rewrite, summarize, or modify the text."
         elif category == "projects":
-            instruction = "Split each project into its OWN separate block. Include project name, technologies, and description."
+            instruction = "Split each project into its OWN separate block. COPY THE EXACT TEXT AS-IS from the resume. DO NOT rewrite or summarize."
         elif category == "skills":
-            instruction = "Create blocks for skill categories (e.g., 'Programming Languages', 'Tools & Technologies'). Can be one block if skills are listed together."
+            instruction = "Extract skill categories or the full skills section. COPY THE EXACT TEXT AS-IS. DO NOT reorganize or reformat. Keep the original structure."
         else:
-            instruction = f"Parse this {category} section into logical blocks. Each distinct item should be its own block."
+            instruction = f"Split this {category} section into logical blocks. COPY THE EXACT TEXT AS-IS for each block. DO NOT modify the wording."
 
-        prompt = f"""Parse this resume section into structured blocks.
+        prompt = f"""Extract structured blocks from this resume section by splitting on natural boundaries (each job, each degree, etc.).
+
+CRITICAL: You must COPY THE EXACT ORIGINAL TEXT from the resume. DO NOT:
+- Rewrite or paraphrase
+- Summarize or shorten
+- Add new information
+- Reorganize or reformat
+- Change any wording
+
+Your job is ONLY to identify where to split the text into blocks. The content must be verbatim from the original resume.
 
 Section: {section_name}
 Category: {category}
@@ -255,16 +266,16 @@ Instructions: {instruction}
 Section text:
 {section_text}
 
-For each block, extract:
+For each block, provide:
 - category: Use the category "{category}"
-- tags: Relevant keywords (technologies, skills, companies, etc.)
-- content: The full text content of this block"""
+- tags: Extract relevant keywords (companies, technologies, skills) for filtering purposes
+- content: THE EXACT VERBATIM TEXT FROM THE RESUME for this block (no modifications)"""
 
         # Use structured outputs with GPT-4o for quality
         completion = self.client.beta.chat.completions.parse(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are an expert at parsing resume sections into reusable, well-tagged blocks."},
+                {"role": "system", "content": "You are an expert at identifying section boundaries in resumes and extracting verbatim text. You NEVER rewrite, summarize, or modify the original text. You only split text into blocks and copy it exactly as written."},
                 {"role": "user", "content": prompt}
             ],
             response_format=SectionParsingSchema,
