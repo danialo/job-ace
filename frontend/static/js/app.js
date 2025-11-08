@@ -487,15 +487,17 @@ async function confirmBlocks() {
                 <br>Block IDs: ${data.block_ids.join(', ')}
             `);
 
-            // Refresh blocks list and auto-select the new blocks
+            // Refresh blocks list
             await loadBlocks();
+
+            // Render the blocks editor with Quill
+            await renderResumeBlocksEditor();
+
+            // Update block selector for Tailor Resume tab
             renderBlockSelector(data.block_ids);
 
-            // Switch to the Tailor Resume tab to show the auto-selected blocks
-            const tailorTab = document.querySelector('.tab-button[data-tab="tailor"]');
-            if (tailorTab) {
-                tailorTab.click();
-            }
+            // Stay on Resume Intake tab to show the editor
+            // (already on the tab since upload happened there)
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to save blocks';
             alert(`Error: ${errorMsg}`);
@@ -662,6 +664,11 @@ async function loadBlocks() {
         if (response.ok) {
             blocks = await response.json();
             displayBlocks();
+
+            // If blocks exist, also render the blocks editor on Resume Intake tab
+            if (blocks.length > 0) {
+                renderResumeBlocksEditor();
+            }
         }
     } catch (error) {
         console.error('Failed to load blocks:', error);
@@ -911,6 +918,175 @@ async function deleteBlock(blockId) {
     } catch (error) {
         console.error('Delete error:', error);
         alert(`Error deleting block: ${error.message}`);
+    }
+}
+
+// Store Quill instances globally (indexed by block ID)
+const quillEditors = {};
+
+// Render Resume Blocks Editor with Quill
+async function renderResumeBlocksEditor() {
+    const container = document.getElementById('resume-blocks-container');
+    const editorSection = document.getElementById('resume-blocks-editor');
+
+    // Group blocks by category
+    const blocksByCategory = {};
+    blocks.forEach(block => {
+        if (!blocksByCategory[block.category]) {
+            blocksByCategory[block.category] = [];
+        }
+        blocksByCategory[block.category].push(block);
+    });
+
+    // Clear existing content
+    container.innerHTML = '';
+
+    // Render each category section
+    for (const [category, categoryBlocks] of Object.entries(blocksByCategory)) {
+        const section = document.createElement('div');
+        section.className = 'resume-block-category-section';
+        section.innerHTML = `
+            <div class="category-section-header">
+                <h4 class="category-section-title">${category}</h4>
+            </div>
+            <div class="category-blocks" id="category-${category}"></div>
+        `;
+
+        container.appendChild(section);
+
+        const categoryContainer = section.querySelector('.category-blocks');
+
+        // Render each block in this category
+        categoryBlocks.forEach(block => {
+            const blockEditor = document.createElement('div');
+            blockEditor.className = 'resume-block-editor';
+            blockEditor.setAttribute('data-block-id', block.id);
+            blockEditor.innerHTML = `
+                <div class="block-editor-header">
+                    <div class="block-editor-meta">
+                        <div class="block-editor-tags">
+                            ${block.tags.map(tag => `<span class="block-editor-tag">${tag}</span>`).join('')}
+                        </div>
+                    </div>
+                    <div class="block-editor-actions">
+                        <button class="btn-save" onclick="saveBlockContent(${block.id})">💾 Save</button>
+                        <button class="btn-delete" onclick="deleteBlockFromEditor(${block.id})">🗑️ Delete</button>
+                    </div>
+                </div>
+                <div class="block-editor-content" id="editor-${block.id}"></div>
+            `;
+
+            categoryContainer.appendChild(blockEditor);
+
+            // Initialize Quill editor for this block
+            setTimeout(() => {
+                const editorEl = document.getElementById(`editor-${block.id}`);
+                if (editorEl) {
+                    const quill = new Quill(`#editor-${block.id}`, {
+                        theme: 'snow',
+                        modules: {
+                            toolbar: [
+                                ['bold', 'italic', 'underline', 'strike'],
+                                [{ 'header': [1, 2, 3, false] }],
+                                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                                ['link'],
+                                ['clean']
+                            ]
+                        }
+                    });
+
+                    // Set initial content
+                    quill.root.innerHTML = block.text;
+
+                    // Store instance
+                    quillEditors[block.id] = quill;
+                }
+            }, 100);
+        });
+    }
+
+    // Show the editor section
+    editorSection.classList.remove('hidden');
+}
+
+// Save block content from Quill editor
+async function saveBlockContent(blockId) {
+    const quill = quillEditors[blockId];
+    if (!quill) {
+        alert('Editor not found');
+        return;
+    }
+
+    // Get content from Quill
+    const content = quill.root.innerHTML;
+
+    try {
+        const response = await fetch(`${API_BASE}/blocks/${blockId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text: content
+            })
+        });
+
+        if (response.ok) {
+            // Update local blocks array
+            const block = blocks.find(b => b.id === blockId);
+            if (block) {
+                block.text = content;
+            }
+
+            // Show success feedback
+            const saveBtn = document.querySelector(`[data-block-id="${blockId}"] .btn-save`);
+            const originalText = saveBtn.textContent;
+            saveBtn.textContent = '✅ Saved!';
+            saveBtn.style.background = '#10b981';
+
+            setTimeout(() => {
+                saveBtn.textContent = originalText;
+                saveBtn.style.background = '';
+            }, 2000);
+        } else {
+            const error = await response.json();
+            alert(`Error saving block: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        alert(`Network error: ${error.message}`);
+    }
+}
+
+// Delete block from editor
+async function deleteBlockFromEditor(blockId) {
+    if (!confirm('Are you sure you want to delete this block? This cannot be undone.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/blocks/${blockId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            // Remove Quill instance
+            delete quillEditors[blockId];
+
+            // Remove from blocks array
+            const index = blocks.findIndex(b => b.id === blockId);
+            if (index !== -1) {
+                blocks.splice(index, 1);
+            }
+
+            // Re-render editor
+            await renderResumeBlocksEditor();
+
+            // Update block selector in Tailor Resume tab
+            renderBlockSelector();
+        } else {
+            const error = await response.json();
+            alert(`Error deleting block: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        alert(`Network error: ${error.message}`);
     }
 }
 

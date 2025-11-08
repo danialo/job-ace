@@ -390,3 +390,4 @@ Future enhancements:
 - Portal-specific selector catalogs
 - Scoring and ranking engine
 - Enhanced compliance checking
+- this project is NOT being programmed on any 172.x address. It is being programmed for localhost.

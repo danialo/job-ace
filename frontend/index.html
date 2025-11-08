@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Job Ace - Application Assistant</title>
     <link rel="stylesheet" href="static/css/styles.css">
+    <!-- Quill.js Rich Text Editor -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
 </head>
 <body>
     <div class="container">
@@ -15,14 +18,53 @@
         </header>
 
         <nav class="tabs">
-            <button class="tab-button active" data-tab="intake">1. Capture Job</button>
-            <button class="tab-button" data-tab="tailor">2. Tailor Resume</button>
-            <button class="tab-button" data-tab="capture">3. Capture Form</button>
-            <button class="tab-button" data-tab="apply">4. Apply</button>
+            <button class="tab-button active" data-tab="resume">1. Resume Intake</button>
+            <button class="tab-button" data-tab="intake">2. Capture Job</button>
+            <button class="tab-button" data-tab="tailor">3. Tailor Resume</button>
+            <button class="tab-button" data-tab="capture">4. Capture Form</button>
+            <button class="tab-button" data-tab="apply">5. Apply</button>
         </nav>
 
-        <!-- Tab 1: Intake -->
-        <div id="intake" class="tab-content active">
+        <!-- Tab 1: Resume Intake -->
+        <div id="resume" class="tab-content active">
+            <div class="card">
+                <h2>Resume Intake</h2>
+                <p>Upload and manage your resume blocks. Each section can be edited with rich text formatting.</p>
+
+                <form id="upload-resume-form">
+                    <div class="form-group">
+                        <label for="resume-file">Upload Resume</label>
+                        <input
+                            type="file"
+                            id="resume-file"
+                            accept=".pdf,.docx,.doc,.txt"
+                            required
+                        >
+                        <small class="help-text">Supported formats: PDF, DOCX, TXT</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Upload & Parse Resume</button>
+                </form>
+
+                <div id="upload-result" class="result-box hidden"></div>
+            </div>
+
+            <!-- Resume Blocks Editor -->
+            <div id="resume-blocks-editor" class="hidden">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Your Resume Blocks</h3>
+                        <p class="text-muted">Edit your resume content below. Changes are saved automatically.</p>
+                    </div>
+
+                    <!-- Blocks will be grouped by category and rendered here -->
+                    <div id="resume-blocks-container"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 2: Capture Job -->
+        <div id="intake" class="tab-content">
             <div class="card">
                 <h2>Capture Job Posting</h2>
                 <p>Enter a job posting URL to capture and analyze the position details.</p>
@@ -98,35 +140,6 @@
                 </form>
 
                 <div id="tailor-result" class="result-box hidden"></div>
-            </div>
-
-            <div class="card">
-                <h3>Upload Resume</h3>
-                <p>Upload your resume to automatically extract and load resume blocks.</p>
-
-                <form id="upload-resume-form">
-                    <div class="form-group">
-                        <label for="resume-file">Resume File</label>
-                        <input
-                            type="file"
-                            id="resume-file"
-                            accept=".pdf,.docx,.doc,.txt"
-                            required
-                        >
-                        <small class="help-text">Supported formats: PDF, DOCX, TXT</small>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary">Upload & Load Resume</button>
-                </form>
-
-                <div id="upload-result" class="result-box hidden"></div>
-            </div>
-
-            <div class="card">
-                <h3>Resume Blocks</h3>
-                <div id="blocks-list" class="blocks-list">
-                    <p class="text-muted">Upload a resume above or use CLI: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>
-                </div>
             </div>
         </div>
 
