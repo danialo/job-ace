@@ -40,44 +40,113 @@ class ResumeConverter:
                         sections[-1]["name"] += f" & {section['name']}"
                         sections[-1]["end_char"] = section["end_char"]
                         sections[-1]["estimated_tokens"] += section["estimated_tokens"]
+                        # Keep original_name for text search (merged names don't exist in original text)
+                        # sections[-1]["original_name"] already exists from first section
                     else:
+                        # Store original name for Python string search (important for merged sections)
+                        section["original_name"] = section["name"]
                         sections.append(section)
 
+                # Log detected sections for debugging
+                section_names = [{"name": s["name"], "original": s.get("original_name", s["name"]), "category": s["category"]} for s in sections]
                 self.logger.info("sections_detected",
                                 section_count=len(sections),
-                                merged_from=len(raw_sections))
+                                merged_from=len(raw_sections),
+                                sections=section_names)
 
                 # Stage 2: Parse each section into blocks
                 all_blocks = []
+
+                # Extract contact info from preamble (text before first section)
+                if sections:
+                    first_section_name = sections[0].get("original_name", sections[0]["name"])
+                    text_lower = text.lower()
+                    first_section_start = text_lower.find(first_section_name.lower())
+
+                    if first_section_start > 0:
+                        # There's text before the first section - likely contact info
+                        preamble = text[:first_section_start].strip()
+                        if preamble and len(preamble) > 10:  # Only if substantial content
+                            all_blocks.append({
+                                "category": "contact",
+                                "tags": [],
+                                "content": preamble
+                            })
+                            self.logger.info("contact_info_extracted",
+                                           contact_text_length=len(preamble))
+
                 for i, section in enumerate(sections):
                     # Extract section text using Python string search instead of LLM-provided positions
                     # (LLMs are bad at counting characters)
-                    section_start = text.find(section["name"])
+                    # Use original_name for search (important for merged sections where name might be "A & B")
+                    search_name = section.get("original_name", section["name"])
+
+                    # Try case-insensitive search first
+                    text_lower = text.lower()
+                    search_name_lower = search_name.lower()
+                    section_start = text_lower.find(search_name_lower)
+
                     if section_start == -1:
                         # Fallback: use LLM positions if we can't find the section name
                         section_text = text[section["start_char"]:section["end_char"]]
+                        self.logger.warning("section_not_found_using_llm_positions",
+                                          section=section["name"],
+                                          search_name=search_name)
                     else:
                         # Find where this section ends (next section starts, or end of text)
                         if i + 1 < len(sections):
-                            next_section_name = sections[i + 1]["name"]
-                            next_section_start = text.find(next_section_name, section_start + len(section["name"]))
+                            # Use original_name of next section for search
+                            next_section_original = sections[i + 1].get("original_name", sections[i + 1]["name"])
+                            next_section_start = text_lower.find(next_section_original.lower(), section_start + len(search_name))
                             if next_section_start != -1:
                                 section_text = text[section_start:next_section_start]
                             else:
+                                # Next section not found, take rest of text
                                 section_text = text[section_start:]
+                                self.logger.warning("next_section_not_found_taking_rest",
+                                                  section=section["name"],
+                                                  next_section=next_section_original)
                         else:
                             # Last section: take everything to the end
                             section_text = text[section_start:]
 
+                    section_text_stripped = section_text.strip()
+
+                    # Log extracted section text for debugging
+                    self.logger.debug("section_extracted",
+                                    section=section["name"],
+                                    search_name=search_name,
+                                    text_length=len(section_text_stripped),
+                                    text_preview=section_text_stripped[:200])
+
+                    # Skip sections that are too short (likely extraction errors)
+                    if len(section_text_stripped) < 20:
+                        self.logger.warning("section_too_short_skipping",
+                                          section=section["name"],
+                                          text_length=len(section_text_stripped),
+                                          text_preview=section_text_stripped[:100])
+                        continue
+
                     section_blocks = self.llm_client.parse_section(
-                        section_text.strip(),
+                        section_text_stripped,
                         section["category"],
                         section["name"]
                     )
+
+                    # Check for potential hallucination (output much longer than input)
+                    total_output_length = sum(len(block.get("content", "")) for block in section_blocks)
+                    if total_output_length > len(section_text_stripped) * 2:
+                        self.logger.warning("possible_hallucination",
+                                        section=section["name"],
+                                        input_length=len(section_text_stripped),
+                                        output_length=total_output_length,
+                                        ratio=round(total_output_length / len(section_text_stripped), 2))
+
                     all_blocks.extend(section_blocks)
                     self.logger.info("section_parsed",
                                     section=section["name"],
-                                    blocks_extracted=len(section_blocks))
+                                    blocks_extracted=len(section_blocks),
+                                    section_text_length=len(section_text_stripped))
 
                 # Extract metadata from first few lines (simple regex)
                 metadata = self._extract_metadata_from_text(text)

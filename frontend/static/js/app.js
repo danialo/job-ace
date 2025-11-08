@@ -283,6 +283,12 @@ async function handleResumeUpload(e) {
         const data = await response.json();
 
         if (response.ok) {
+            // Clear existing blocks before saving new ones to prevent duplicates
+            await fetch(`${API_BASE}/blocks`, {
+                method: 'DELETE',
+                cache: 'no-store',
+            });
+
             // Save blocks to database immediately
             const confirmResponse = await fetch(`${API_BASE}/confirm-resume-blocks`, {
                 method: 'POST',
