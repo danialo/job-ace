@@ -249,10 +249,11 @@ async function handleTailor(e) {
     }
 }
 
-// Store parsed resume data globally for preview modal
-let parsedResumeData = null;
+// Store full resume text and parsed data
+let fullResumeText = '';
+let fullResumeQuill = null;
 
-// Resume Upload Handler - NEW: Preview flow before saving
+// Resume Upload Handler - Parse and show immediately
 async function handleResumeUpload(e) {
     e.preventDefault();
 
@@ -273,7 +274,7 @@ async function handleResumeUpload(e) {
         const formData = new FormData();
         formData.append('file', file);
 
-        // NEW: Use /parse-resume endpoint (preview only, doesn't save)
+        // Parse resume
         const response = await fetch(`${API_BASE}/parse-resume`, {
             method: 'POST',
             body: formData
@@ -282,26 +283,52 @@ async function handleResumeUpload(e) {
         const data = await response.json();
 
         if (response.ok) {
-            // Store parsed data globally
-            parsedResumeData = data;
+            // Save blocks to database immediately
+            const confirmResponse = await fetch(`${API_BASE}/confirm-resume-blocks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blocks: data.blocks })
+            });
 
-            // Hide upload result
-            resultEl.classList.add('hidden');
+            const confirmData = await confirmResponse.json();
 
-            // Show preview modal
-            showPreviewModal(data);
+            if (confirmResponse.ok) {
+                // Set cookie
+                setCookie('jobace_has_resume', 'true');
 
-            // Reset form
-            document.getElementById('upload-resume-form').reset();
+                // Show success
+                showResult(resultEl, 'success', `
+                    <strong>Resume Parsed Successfully!</strong>
+                    <br>Sections Found: ${data.parsing_summary?.total_sections || 0}
+                    <br>Blocks Created: ${confirmData.blocks_saved}
+                `);
+
+                // Reload blocks from database
+                await loadBlocks();
+
+                // Reconstruct full resume text from blocks
+                fullResumeText = blocks.map(b => b.text).join('\n\n');
+
+                // Show full resume editor
+                showFullResumeEditor();
+
+                // Show individual blocks editor
+                renderResumeBlocksEditor();
+
+                // Reset form
+                document.getElementById('upload-resume-form').reset();
+            } else {
+                throw new Error(confirmData.detail || 'Failed to save blocks');
+            }
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to parse resume';
             showResult(resultEl, 'error', `Error: ${errorMsg}`);
         }
     } catch (error) {
-        showResult(resultEl, 'error', `Network error: ${error.message}`);
+        showResult(resultEl, 'error', `Error: ${error.message}`);
     } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Upload & Load Resume';
+        submitBtn.textContent = 'Upload & Parse Resume';
     }
 }
 
@@ -665,8 +692,15 @@ async function loadBlocks() {
             blocks = await response.json();
             displayBlocks();
 
-            // If blocks exist, also render the blocks editor on Resume Intake tab
+            // If blocks exist, show both editors on Resume Intake tab
             if (blocks.length > 0) {
+                // Reconstruct full resume text
+                fullResumeText = blocks.map(b => b.text).join('\n\n');
+
+                // Show full resume editor
+                showFullResumeEditor();
+
+                // Show individual blocks editor
                 renderResumeBlocksEditor();
             }
         }
@@ -921,6 +955,50 @@ async function deleteBlock(blockId) {
     }
 }
 
+// Show Full Resume Editor with Quill
+function showFullResumeEditor() {
+    const editorSection = document.getElementById('full-resume-editor');
+    const editorDiv = document.getElementById('full-resume-quill');
+
+    // Show the section
+    editorSection.classList.remove('hidden');
+
+    // Initialize Quill if not already initialized
+    if (!fullResumeQuill) {
+        fullResumeQuill = new Quill('#full-resume-quill', {
+            theme: 'snow',
+            modules: {
+                toolbar: [
+                    ['bold', 'italic', 'underline'],
+                    [{ 'header': [1, 2, 3, false] }],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    ['link'],
+                    ['clean']
+                ]
+            }
+        });
+    }
+
+    // Set the content
+    fullResumeQuill.root.innerHTML = fullResumeText;
+}
+
+// Save Full Resume
+async function saveFullResume() {
+    if (!fullResumeQuill) {
+        alert('Editor not initialized');
+        return;
+    }
+
+    // Get content from Quill
+    const content = fullResumeQuill.root.innerHTML;
+
+    // TODO: Add endpoint to save full resume text
+    // For now, just show feedback
+    alert('Full resume text updated! (Note: This currently updates the view only. Individual block saves are persistent.)');
+    fullResumeText = content;
+}
+
 // Store Quill instances globally (indexed by block ID)
 const quillEditors = {};
 
@@ -963,11 +1041,6 @@ async function renderResumeBlocksEditor() {
             blockEditor.setAttribute('data-block-id', block.id);
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
-                    <div class="block-editor-meta">
-                        <div class="block-editor-tags">
-                            ${block.tags.map(tag => `<span class="block-editor-tag">${tag}</span>`).join('')}
-                        </div>
-                    </div>
                     <div class="block-editor-actions">
                         <button class="btn-save" onclick="saveBlockContent(${block.id})">💾 Save</button>
                         <button class="btn-delete" onclick="deleteBlockFromEditor(${block.id})">🗑️ Delete</button>

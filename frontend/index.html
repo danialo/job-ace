@@ -29,7 +29,7 @@
         <div id="resume" class="tab-content active">
             <div class="card">
                 <h2>Resume Intake</h2>
-                <p>Upload and manage your resume blocks. Each section can be edited with rich text formatting.</p>
+                <p>Upload your resume to extract and edit content. Review the full text and individual sections below.</p>
 
                 <form id="upload-resume-form">
                     <div class="form-group">
@@ -49,12 +49,24 @@
                 <div id="upload-result" class="result-box hidden"></div>
             </div>
 
-            <!-- Resume Blocks Editor -->
+            <!-- Full Resume Editor -->
+            <div id="full-resume-editor" class="card hidden">
+                <div class="card-header">
+                    <h3>Full Resume</h3>
+                    <p class="text-muted">Edit your complete resume text below</p>
+                </div>
+                <div id="full-resume-quill"></div>
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-primary" onclick="saveFullResume()">💾 Save Full Resume</button>
+                </div>
+            </div>
+
+            <!-- Individual Resume Blocks -->
             <div id="resume-blocks-editor" class="hidden">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Your Resume Blocks</h3>
-                        <p class="text-muted">Edit your resume content below. Changes are saved automatically.</p>
+                        <h3>Individual Sections</h3>
+                        <p class="text-muted">Edit individual sections below. These are the building blocks for optimized resumes.</p>
                     </div>
 
                     <!-- Blocks will be grouped by category and rendered here -->
