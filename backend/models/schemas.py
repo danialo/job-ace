@@ -96,6 +96,12 @@ class DeleteBlockResponse(BaseModel):
     message: str = "Block deleted successfully"
 
 
+class ImproveBlockResponse(BaseModel):
+    """Response from improving a block with LLM."""
+    improved_text: str
+    original_text: str
+
+
 class ParsedBlock(BaseModel):
     """A parsed resume block ready for preview."""
     category: str
@@ -118,6 +124,7 @@ class ParseResumeResponse(BaseModel):
     metadata: dict
     sections: Optional[List[ResumeSectionInfo]] = None
     parsing_summary: Optional[dict] = None
+    original_text: str = ""  # Original resume text before parsing
 
 
 class ConfirmBlockData(BaseModel):

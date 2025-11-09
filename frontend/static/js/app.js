@@ -135,8 +135,9 @@ async function handleResetData() {
 
         const result = await response.json();
 
-        // Delete the cookie
+        // Delete the cookie and localStorage
         deleteCookie('jobace_has_resume');
+        localStorage.removeItem('originalResumeText');
 
         // Force hard reload with cache-busting
         window.location.href = window.location.href.split('?')[0] + '?_=' + Date.now();
@@ -233,10 +234,11 @@ async function handleTailor(e) {
                 <strong>Resume Tailored Successfully!</strong>
                 <br>Coverage: ${coveragePercent}% (${coverageCount} of ${totalKeywords} keywords covered)
                 <br>Compliance: ${data.compliance_pass ? '✅ Pass' : '❌ Fail'}
-                <br><br><strong>Resume Text:</strong>
-                <pre>${data.ats_text.substring(0, 800)}${data.ats_text.length > 800 ? '...' : ''}</pre>
                 ${data.uncovered.length > 0 ? `<br><strong>Uncovered Keywords:</strong> ${data.uncovered.join(', ')}` : ''}
             `);
+
+            // Show full resume in preview section
+            displayResumePreview(data.ats_text, data);
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to tailor resume';
             showResult(resultEl, 'error', `Error: ${errorMsg}`);
@@ -251,7 +253,11 @@ async function handleTailor(e) {
 
 // Store full resume text and parsed data
 let fullResumeText = '';
+let originalResumeText = localStorage.getItem('originalResumeText') || '';
 let fullResumeQuill = null;
+
+// Track which blocks are selected for reassembled view
+let selectedBlockIds = [];
 
 // Resume Upload Handler - Parse and show immediately
 async function handleResumeUpload(e) {
@@ -282,6 +288,11 @@ async function handleResumeUpload(e) {
 
         const data = await response.json();
 
+        // Debug: log the entire response
+        console.log('Parse resume response:', data);
+        console.log('Has original_text?', 'original_text' in data);
+        console.log('original_text value:', data.original_text);
+
         if (response.ok) {
             // Clear existing blocks before saving new ones to prevent duplicates
             await fetch(`${API_BASE}/blocks`, {
@@ -309,14 +320,20 @@ async function handleResumeUpload(e) {
                     <br>Blocks Created: ${confirmData.blocks_saved}
                 `);
 
+                // Store original resume text and persist it in localStorage
+                originalResumeText = data.original_text || '';
+                localStorage.setItem('originalResumeText', originalResumeText);
+                console.log('Original text length:', originalResumeText.length);
+                console.log('Original text preview:', originalResumeText.substring(0, 200));
+
                 // Reload blocks from database
                 await loadBlocks();
 
-                // Reconstruct full resume text from blocks
-                fullResumeText = blocks.map(b => b.text).join('\n\n');
+                // DON'T auto-populate reassembled text - user will select blocks manually
+                fullResumeText = '';
 
-                // Show full resume editor
-                showFullResumeEditor();
+                // Show side-by-side comparison (RIGHT pane will be empty until blocks are selected)
+                showSideBySideComparison();
 
                 // Show individual blocks editor
                 renderResumeBlocksEditor();
@@ -700,11 +717,13 @@ async function loadBlocks() {
 
             // If blocks exist, show both editors on Resume Intake tab
             if (blocks.length > 0) {
-                // Reconstruct full resume text
-                fullResumeText = blocks.map(b => b.text).join('\n\n');
+                // DON'T auto-populate - user will select blocks to include
+                fullResumeText = '';
 
-                // Show full resume editor
-                showFullResumeEditor();
+                // Show comparison if we have original text (persisted in localStorage)
+                if (originalResumeText) {
+                    showSideBySideComparison();
+                }
 
                 // Show individual blocks editor
                 renderResumeBlocksEditor();
@@ -950,6 +969,15 @@ async function deleteBlock(blockId) {
             blocks.splice(index, 1);
         }
 
+        // Remove from selected blocks
+        const selectedIndex = selectedBlockIds.indexOf(blockId);
+        if (selectedIndex !== -1) {
+            selectedBlockIds.splice(selectedIndex, 1);
+        }
+
+        // Update reassembled view
+        updateReassembledView();
+
         // Refresh UI
         renderBlockSelector();
         displayBlocks();
@@ -962,6 +990,58 @@ async function deleteBlock(blockId) {
 }
 
 // Show Full Resume Editor with Quill
+// Show Side by Side Comparison
+function showSideBySideComparison() {
+    const comparisonSection = document.getElementById('resume-comparison');
+    const originalText = document.getElementById('original-resume-text');
+    const reassembledText = document.getElementById('reassembled-resume-text');
+
+    // Safety check - elements must exist
+    if (!comparisonSection || !originalText || !reassembledText) {
+        console.warn('Comparison elements not found in DOM');
+        return;
+    }
+
+    // Set original text
+    originalText.textContent = originalResumeText || '(Original text not available)';
+
+    // Set reassembled text from blocks
+    reassembledText.textContent = fullResumeText || '(No blocks to display)';
+
+    // Show the section
+    comparisonSection.classList.remove('hidden');
+}
+
+// Toggle block selection for reassembled view
+function toggleBlockSelection(blockId) {
+    const index = selectedBlockIds.indexOf(blockId);
+
+    if (index === -1) {
+        // Add to selection
+        selectedBlockIds.push(blockId);
+    } else {
+        // Remove from selection
+        selectedBlockIds.splice(index, 1);
+    }
+
+    // Update the reassembled view
+    updateReassembledView();
+}
+
+// Update reassembled view with ONLY selected blocks
+function updateReassembledView() {
+    const reassembledText = document.getElementById('reassembled-resume-text');
+    if (!reassembledText) return;
+
+    // Only show blocks that are selected, in the order they appear in selectedBlockIds
+    const selectedBlocks = selectedBlockIds
+        .map(id => blocks.find(b => b.id === id))
+        .filter(b => b); // Remove any undefined entries
+
+    fullResumeText = selectedBlocks.map(b => b.text).join('\n\n');
+    reassembledText.textContent = fullResumeText || '(No blocks selected)';
+}
+
 function showFullResumeEditor() {
     const editorSection = document.getElementById('full-resume-editor');
     const editorDiv = document.getElementById('full-resume-quill');
@@ -985,8 +1065,8 @@ function showFullResumeEditor() {
         });
     }
 
-    // Set the content
-    fullResumeQuill.root.innerHTML = fullResumeText;
+    // Set the content (plain text)
+    fullResumeQuill.setText(fullResumeText);
 }
 
 // Save Full Resume
@@ -996,8 +1076,8 @@ async function saveFullResume() {
         return;
     }
 
-    // Get content from Quill
-    const content = fullResumeQuill.root.innerHTML;
+    // Get plain text content from Quill
+    const content = fullResumeQuill.getText().trim();
 
     // TODO: Add endpoint to save full resume text
     // For now, just show feedback
@@ -1047,7 +1127,12 @@ async function renderResumeBlocksEditor() {
             blockEditor.setAttribute('data-block-id', block.id);
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
+                    <div class="block-editor-selection">
+                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" />
+                        <label for="select-block-${block.id}">Include in resume</label>
+                    </div>
                     <div class="block-editor-actions">
+                        <button class="btn-improve" onclick="improveBlock(${block.id})">✨ Improve</button>
                         <button class="btn-save" onclick="saveBlockContent(${block.id})">💾 Save</button>
                         <button class="btn-delete" onclick="deleteBlockFromEditor(${block.id})">🗑️ Delete</button>
                     </div>
@@ -1074,8 +1159,8 @@ async function renderResumeBlocksEditor() {
                         }
                     });
 
-                    // Set initial content
-                    quill.root.innerHTML = block.text;
+                    // Set initial content (plain text)
+                    quill.setText(block.text);
 
                     // Store instance
                     quillEditors[block.id] = quill;
@@ -1096,8 +1181,8 @@ async function saveBlockContent(blockId) {
         return;
     }
 
-    // Get content from Quill
-    const content = quill.root.innerHTML;
+    // Get plain text content from Quill (no HTML tags)
+    const content = quill.getText().trim();
 
     try {
         const response = await fetch(`${API_BASE}/blocks/${blockId}`, {
@@ -1115,6 +1200,9 @@ async function saveBlockContent(blockId) {
                 block.text = content;
             }
 
+            // Update the reassembled view if comparison is visible
+            updateReassembledView();
+
             // Show success feedback
             const saveBtn = document.querySelector(`[data-block-id="${blockId}"] .btn-save`);
             const originalText = saveBtn.textContent;
@@ -1125,6 +1213,193 @@ async function saveBlockContent(blockId) {
                 saveBtn.textContent = originalText;
                 saveBtn.style.background = '';
             }, 2000);
+        } else {
+            const error = await response.json();
+            alert(`Error saving block: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        alert(`Network error: ${error.message}`);
+    }
+}
+
+// Improve block with LLM
+async function improveBlock(blockId) {
+    const improveBtn = document.querySelector(`[data-block-id="${blockId}"] .btn-improve`);
+    const originalBtnText = improveBtn.textContent;
+
+    improveBtn.disabled = true;
+    improveBtn.textContent = '⏳ Improving...';
+    improveBtn.style.background = '#f59e0b';
+
+    try {
+        const response = await fetch(`${API_BASE}/blocks/${blockId}/improve`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+
+            // Show comparison UI
+            showImprovementComparison(blockId, data.original_text, data.improved_text);
+
+            // Reset button
+            improveBtn.textContent = originalBtnText;
+            improveBtn.style.background = '';
+            improveBtn.disabled = false;
+        } else {
+            const error = await response.json();
+            alert(`Error improving block: ${error.detail || 'Unknown error'}`);
+            improveBtn.textContent = originalBtnText;
+            improveBtn.disabled = false;
+            improveBtn.style.background = '';
+        }
+    } catch (error) {
+        alert(`Network error: ${error.message}`);
+        improveBtn.textContent = originalBtnText;
+        improveBtn.disabled = false;
+        improveBtn.style.background = '';
+    }
+}
+
+// Show improvement comparison modal
+function showImprovementComparison(blockId, originalText, improvedText) {
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.className = 'improvement-modal';
+    modal.innerHTML = `
+        <div class="improvement-modal-content">
+            <div class="improvement-modal-header">
+                <h3>Review Improvement</h3>
+                <button class="btn-close-modal" onclick="closeImprovementModal()">✕</button>
+            </div>
+
+            <div class="improvement-comparison">
+                <div class="improvement-box">
+                    <div class="improvement-box-header">
+                        <h4>Original</h4>
+                        <div class="improvement-box-actions">
+                            <input type="checkbox" id="improvement-original-checkbox-${blockId}" onchange="toggleImprovementBlockSelection(${blockId})" />
+                            <label for="improvement-original-checkbox-${blockId}">Include</label>
+                            <button class="btn-save" onclick="saveImprovementVersion(${blockId}, 'original')">💾 Save</button>
+                        </div>
+                    </div>
+                    <div id="improvement-original-${blockId}" class="improvement-editor"></div>
+                </div>
+
+                <div class="improvement-box">
+                    <div class="improvement-box-header">
+                        <h4>Improved</h4>
+                        <div class="improvement-box-actions">
+                            <input type="checkbox" id="improvement-improved-checkbox-${blockId}" onchange="toggleImprovementBlockSelection(${blockId})" />
+                            <label for="improvement-improved-checkbox-${blockId}">Include</label>
+                            <button class="btn-save" onclick="saveImprovementVersion(${blockId}, 'improved')">💾 Save</button>
+                        </div>
+                    </div>
+                    <div id="improvement-improved-${blockId}" class="improvement-editor"></div>
+                </div>
+            </div>
+
+            <div class="improvement-modal-actions">
+                <button class="btn-cancel" onclick="closeImprovementModal()">Cancel</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Initialize Quill editors for both versions
+    setTimeout(() => {
+        const originalQuill = new Quill(`#improvement-original-${blockId}`, {
+            theme: 'snow',
+            modules: { toolbar: false }
+        });
+        originalQuill.setText(originalText);
+
+        const improvedQuill = new Quill(`#improvement-improved-${blockId}`, {
+            theme: 'snow',
+            modules: { toolbar: false }
+        });
+        improvedQuill.setText(improvedText);
+
+        // Sync checkbox state with main selection
+        const isSelected = selectedBlockIds.includes(blockId);
+        const originalCheckbox = document.getElementById(`improvement-original-checkbox-${blockId}`);
+        const improvedCheckbox = document.getElementById(`improvement-improved-checkbox-${blockId}`);
+
+        if (originalCheckbox) originalCheckbox.checked = isSelected;
+        if (improvedCheckbox) improvedCheckbox.checked = isSelected;
+
+        // Store references
+        window.improvementComparison = {
+            blockId,
+            originalQuill,
+            improvedQuill
+        };
+    }, 50);
+}
+
+// Close improvement modal
+function closeImprovementModal() {
+    const modal = document.querySelector('.improvement-modal');
+    if (modal) {
+        modal.remove();
+    }
+    window.improvementComparison = null;
+}
+
+// Toggle block selection from improvement modal
+function toggleImprovementBlockSelection(blockId) {
+    // Get the checkbox from the main block editor
+    const mainCheckbox = document.getElementById(`select-block-${blockId}`);
+
+    // Toggle the main checkbox
+    if (mainCheckbox) {
+        mainCheckbox.checked = !mainCheckbox.checked;
+        // Trigger the main toggle function
+        toggleBlockSelection(blockId);
+    }
+}
+
+// Save a version from the improvement comparison
+async function saveImprovementVersion(blockId, version) {
+    if (!window.improvementComparison) return;
+
+    // Get the text from the selected version
+    const quill = version === 'original'
+        ? window.improvementComparison.originalQuill
+        : window.improvementComparison.improvedQuill;
+
+    const text = quill.getText().trim();
+
+    // Save to database
+    try {
+        const response = await fetch(`${API_BASE}/blocks/${blockId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+        });
+
+        if (response.ok) {
+            // Update main editor
+            const mainQuill = quillEditors[blockId];
+            if (mainQuill) {
+                mainQuill.setText(text);
+            }
+
+            // Update local blocks array
+            const block = blocks.find(b => b.id === blockId);
+            if (block) {
+                block.text = text;
+            }
+
+            // Update reassembled view if this block is selected
+            updateReassembledView();
+
+            // Show success
+            alert('Block saved successfully!');
+
+            // Close modal
+            closeImprovementModal();
         } else {
             const error = await response.json();
             alert(`Error saving block: ${error.detail || 'Unknown error'}`);
@@ -1155,6 +1430,15 @@ async function deleteBlockFromEditor(blockId) {
                 blocks.splice(index, 1);
             }
 
+            // Remove from selected blocks
+            const selectedIndex = selectedBlockIds.indexOf(blockId);
+            if (selectedIndex !== -1) {
+                selectedBlockIds.splice(selectedIndex, 1);
+            }
+
+            // Update reassembled view
+            updateReassembledView();
+
             // Re-render editor
             await renderResumeBlocksEditor();
 
@@ -1167,6 +1451,55 @@ async function deleteBlockFromEditor(blockId) {
     } catch (error) {
         alert(`Network error: ${error.message}`);
     }
+}
+
+// Resume Preview Functions
+let currentResumeText = '';
+let currentResumeData = null;
+
+function displayResumePreview(resumeText, metadata) {
+    currentResumeText = resumeText;
+    currentResumeData = metadata;
+
+    const previewSection = document.getElementById('resume-preview-section');
+    const previewText = document.getElementById('resume-preview-text');
+
+    previewText.textContent = resumeText;
+    previewSection.classList.remove('hidden');
+
+    // Scroll to preview
+    previewSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function copyResumeToClipboard() {
+    if (!currentResumeText) {
+        alert('No resume to copy');
+        return;
+    }
+
+    navigator.clipboard.writeText(currentResumeText).then(() => {
+        alert('Resume copied to clipboard!');
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+
+function downloadResume() {
+    if (!currentResumeText) {
+        alert('No resume to download');
+        return;
+    }
+
+    const blob = new Blob([currentResumeText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'resume_tailored_' + Date.now() + '.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 // Add edit form handler on load

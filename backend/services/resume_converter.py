@@ -60,8 +60,10 @@ class ResumeConverter:
                 # Extract contact info from preamble (text before first section)
                 if sections:
                     first_section_name = sections[0].get("original_name", sections[0]["name"])
-                    text_lower = text.lower()
-                    first_section_start = text_lower.find(first_section_name.lower())
+                    # Search for first section header as standalone line
+                    first_pattern = re.compile(r'^' + re.escape(first_section_name) + r'\s*$', re.MULTILINE | re.IGNORECASE)
+                    first_match = first_pattern.search(text)
+                    first_section_start = first_match.start() if first_match else -1
 
                     if first_section_start > 0:
                         # There's text before the first section - likely contact info
@@ -81,10 +83,12 @@ class ResumeConverter:
                     # Use original_name for search (important for merged sections where name might be "A & B")
                     search_name = section.get("original_name", section["name"])
 
-                    # Try case-insensitive search first
-                    text_lower = text.lower()
-                    search_name_lower = search_name.lower()
-                    section_start = text_lower.find(search_name_lower)
+                    # Search for section header as a standalone line (more precise than just finding the word)
+                    # This avoids matching "skills" in prose vs "SKILLS" as a header
+                    # Pattern: section name at start of line, possibly with whitespace, case-insensitive
+                    pattern = re.compile(r'^' + re.escape(search_name) + r'\s*$', re.MULTILINE | re.IGNORECASE)
+                    match = pattern.search(text)
+                    section_start = match.start() if match else -1
 
                     if section_start == -1:
                         # Fallback: use LLM positions if we can't find the section name
@@ -97,9 +101,11 @@ class ResumeConverter:
                         if i + 1 < len(sections):
                             # Use original_name of next section for search
                             next_section_original = sections[i + 1].get("original_name", sections[i + 1]["name"])
-                            next_section_start = text_lower.find(next_section_original.lower(), section_start + len(search_name))
-                            if next_section_start != -1:
-                                section_text = text[section_start:next_section_start]
+                            # Search for next section header as standalone line
+                            next_pattern = re.compile(r'^' + re.escape(next_section_original) + r'\s*$', re.MULTILINE | re.IGNORECASE)
+                            next_match = next_pattern.search(text, section_start + len(search_name))
+                            if next_match:
+                                section_text = text[section_start:next_match.start()]
                             else:
                                 # Next section not found, take rest of text
                                 section_text = text[section_start:]

@@ -49,15 +49,21 @@
                 <div id="upload-result" class="result-box hidden"></div>
             </div>
 
-            <!-- Full Resume Editor -->
-            <div id="full-resume-editor" class="card hidden">
+            <!-- Side by Side Resume Comparison -->
+            <div id="resume-comparison" class="card hidden">
                 <div class="card-header">
-                    <h3>Full Resume</h3>
-                    <p class="text-muted">Edit your complete resume text below</p>
+                    <h3>Resume Comparison</h3>
+                    <p class="text-muted">Compare original resume with parsed blocks</p>
                 </div>
-                <div id="full-resume-quill"></div>
-                <div style="margin-top: 1rem;">
-                    <button class="btn btn-primary" onclick="saveFullResume()">💾 Save Full Resume</button>
+                <div class="side-by-side-container">
+                    <div class="side-by-side-pane">
+                        <h4>Original Resume</h4>
+                        <pre id="original-resume-text" class="resume-preview"></pre>
+                    </div>
+                    <div class="side-by-side-pane">
+                        <h4>Parsed Blocks (Reassembled)</h4>
+                        <pre id="reassembled-resume-text" class="resume-preview"></pre>
+                    </div>
                 </div>
             </div>
 
@@ -152,6 +158,21 @@
                 </form>
 
                 <div id="tailor-result" class="result-box hidden"></div>
+            </div>
+
+            <!-- Resume Preview -->
+            <div id="resume-preview-section" class="card hidden">
+                <div class="card-header">
+                    <h3>Generated Resume Preview</h3>
+                    <p class="text-muted">Review your tailored resume below</p>
+                </div>
+                <div class="resume-preview-container">
+                    <pre id="resume-preview-text" class="resume-preview"></pre>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-secondary" onclick="copyResumeToClipboard()">📋 Copy to Clipboard</button>
+                    <button class="btn btn-secondary" onclick="downloadResume()">💾 Download</button>
+                </div>
             </div>
         </div>
 

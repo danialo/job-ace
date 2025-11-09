@@ -16,6 +16,7 @@ from backend.models.schemas import (
     ConfirmResumeBlocksRequest,
     ConfirmResumeBlocksResponse,
     DeleteBlockResponse,
+    ImproveBlockResponse,
     IntakeRequest,
     IntakeResponse,
     LogSubmitRequest,
@@ -295,6 +296,7 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
             metadata=resume_data.get("metadata", {}),
             sections=sections_info,
             parsing_summary=resume_data.get("parsing_summary"),
+            original_text=text,  # Include original text for side-by-side comparison
         )
 
     except Exception as e:
@@ -390,6 +392,60 @@ def delete_block(block_id: int, db: Session = Depends(get_db)) -> DeleteBlockRes
     db.commit()
 
     return DeleteBlockResponse(id=block_id)
+
+
+@app.post("/blocks/{block_id}/improve", response_model=ImproveBlockResponse)
+def improve_block(block_id: int, db: Session = Depends(get_db)) -> ImproveBlockResponse:
+    """Improve a resume block using LLM (job-agnostic improvement)."""
+    block = db.get(models.ResumeBlock, block_id)
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
+
+    # Get LLM client
+    from backend.services.llm import get_llm_client, OpenAIClient
+    from backend.config import get_settings
+    settings = get_settings()
+    llm_client = get_llm_client(settings, task="resume_improvement")
+
+    # Create improvement prompt
+    prompt = f"""Improve the following resume block. Make it more professional, impactful, and clear. Use strong action verbs and quantify achievements where possible. Keep the same general structure and content but enhance the writing quality.
+
+Category: {block.category}
+
+Original text:
+{block.text}
+
+Provide ONLY the improved text, no explanations or additional commentary."""
+
+    try:
+        # Check if it's OpenAI client and call the API directly
+        if isinstance(llm_client, OpenAIClient):
+            response = llm_client.client.chat.completions.create(
+                model=llm_client.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert resume writer. Improve resume content to be more professional, impactful, and clear. Use strong action verbs and quantify achievements where possible."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=1000
+            )
+            improved_text = response.choices[0].message.content
+        else:
+            # Stub client fallback
+            improved_text = block.text
+
+        return ImproveBlockResponse(
+            improved_text=improved_text.strip(),
+            original_text=block.text
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to improve block: {str(e)}")
 
 
 @app.delete("/blocks")
