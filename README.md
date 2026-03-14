@@ -77,6 +77,28 @@ python -m backend.main
 
 The web interface will be available at: **http://172.239.66.45:3000**
 
+### 5. (Optional) Configure LLM Provider
+
+By default, Job Ace uses a stub LLM client with regex-based heuristics. For better job parsing and resume tailoring, configure a real LLM provider:
+
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and set:
+JOB_ACE_LLM_PROVIDER=anthropic
+JOB_ACE_ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+**Supported providers:**
+- `stub` (default) - Regex-based heuristics, no API calls
+- `anthropic` - Claude API for intelligent parsing and tailoring
+
+**LLM tuning options:**
+- `JOB_ACE_ANTHROPIC_MODEL` - Model to use (default: `claude-sonnet-4-20250514`)
+- `JOB_ACE_LLM_MAX_TOKENS` - Max response tokens (default: 4096)
+- `JOB_ACE_LLM_TEMPERATURE` - Response randomness (default: 0.3)
+
 ## Using the Web Interface
 
 ### Tab 1: Capture Job

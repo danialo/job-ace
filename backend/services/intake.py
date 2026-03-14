@@ -11,18 +11,18 @@ from sqlalchemy.orm import Session
 
 from backend.models import models
 from backend.services.artifacts import ArtifactManager
-from backend.services.llm import get_llm_client
+from backend.services.llm import BaseLLMClient, get_llm_client
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
 class IntakeService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, llm: BaseLLMClient | None = None):
         self.db = db
         self.artifacts = ArtifactManager(db)
         self.settings = get_settings()
-        self.llm = get_llm_client(self.settings, task="extraction")
+        self.llm = llm or get_llm_client(self.settings, task="extraction")
 
     def run(self, url: str, force: bool = False) -> models.JobPosting:
         existing = self.db.scalar(select(models.JobPosting).where(models.JobPosting.url == url))

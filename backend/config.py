@@ -11,9 +11,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./db.sqlite3"
 
     # LLM Models - separate configs for different tasks
-    # Extraction: gpt-4o-mini (fast, cheap), gpt-4o (better)
-    # Resume Parsing: gpt-4o (fast + quality), o3-mini (slow but best reasoning)
-    # Tailoring: gpt-4o (reliable), o3-mini (reasoning), o3 (overkill)
     llm_extraction_model: str = "gpt-4o-mini"  # Job extraction: fast, structured outputs
     llm_resume_parsing_model: str = "gpt-4o"  # Resume parsing: fast and accurate
     llm_tailoring_model: str = "gpt-4o"  # Resume tailoring: reliable quality analysis
@@ -24,6 +21,13 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
     )
+
+    # LLM Configuration
+    llm_provider: str = "stub"  # "stub" | "anthropic"
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-4-20250514"
+    llm_max_tokens: int = 4096
+    llm_temperature: float = 0.3
 
     model_config = {
         "env_prefix": "JOB_ACE_",
