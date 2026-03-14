@@ -10,14 +10,14 @@ from sqlalchemy.orm import Session
 from backend.models import models
 from backend.services.artifacts import ArtifactManager
 from backend.services.compliance import run_compliance
-from backend.services.llm import StubLLMClient
+from backend.services.llm import BaseLLMClient, get_llm_client
 
 
 class TailorService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, llm: BaseLLMClient | None = None):
         self.db = db
         self.artifacts = ArtifactManager(db)
-        self.llm = StubLLMClient()
+        self.llm = llm or get_llm_client()
 
     def run(self, job_id: int, allowed_block_ids: List[int], resume_version: str) -> Dict:
         job_posting = self._get_job(job_id)
