@@ -1,6 +1,14 @@
 // API Base URL
 const API_BASE = window.location.origin;
 
+// HTML escape helper to prevent XSS
+function esc(str) {
+    if (str == null) return '';
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(String(str)));
+    return div.innerHTML;
+}
+
 // State
 let jobs = [];
 let blocks = [];
@@ -171,17 +179,17 @@ async function handleIntake(e) {
         if (response.ok) {
             showResult(resultEl, 'success', `
                 <strong>Job Captured Successfully!</strong>
-                <br>Job ID: ${data.job_id}
-                <br>Artifact Directory: ${data.artifact_dir}
+                <br>Job ID: ${esc(data.job_id)}
+                <br>Artifact Directory: ${esc(data.artifact_dir)}
             `);
             document.getElementById('intake-form').reset();
             loadJobs();
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to capture job';
-            showResult(resultEl, 'error', `Error: ${errorMsg}`);
+            showResult(resultEl, 'error', `Error: ${esc(errorMsg)}`);
         }
     } catch (error) {
-        showResult(resultEl, 'error', `Network error: ${error.message}`);
+        showResult(resultEl, 'error', `Network error: ${esc(error.message)}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Capture Job';
@@ -232,19 +240,19 @@ async function handleTailor(e) {
 
             showResult(resultEl, 'success', `
                 <strong>Resume Tailored Successfully!</strong>
-                <br>Coverage: ${coveragePercent}% (${coverageCount} of ${totalKeywords} keywords covered)
+                <br>Coverage: ${esc(coveragePercent)}% (${esc(coverageCount)} of ${esc(totalKeywords)} keywords covered)
                 <br>Compliance: ${data.compliance_pass ? '✅ Pass' : '❌ Fail'}
-                ${data.uncovered.length > 0 ? `<br><strong>Uncovered Keywords:</strong> ${data.uncovered.join(', ')}` : ''}
+                ${data.uncovered.length > 0 ? `<br><strong>Uncovered Keywords:</strong> ${esc(data.uncovered.join(', '))}` : ''}
             `);
 
             // Show full resume in preview section
             displayResumePreview(data.ats_text, data);
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to tailor resume';
-            showResult(resultEl, 'error', `Error: ${errorMsg}`);
+            showResult(resultEl, 'error', `Error: ${esc(errorMsg)}`);
         }
     } catch (error) {
-        showResult(resultEl, 'error', `Network error: ${error.message}`);
+        showResult(resultEl, 'error', `Network error: ${esc(error.message)}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Generate Tailored Resume';
@@ -316,8 +324,8 @@ async function handleResumeUpload(e) {
                 // Show success
                 showResult(resultEl, 'success', `
                     <strong>Resume Parsed Successfully!</strong>
-                    <br>Sections Found: ${data.parsing_summary?.total_sections || 0}
-                    <br>Blocks Created: ${confirmData.blocks_saved}
+                    <br>Sections Found: ${esc(data.parsing_summary?.total_sections || 0)}
+                    <br>Blocks Created: ${esc(confirmData.blocks_saved)}
                 `);
 
                 // Store original resume text and persist it in localStorage
@@ -345,10 +353,10 @@ async function handleResumeUpload(e) {
             }
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to parse resume';
-            showResult(resultEl, 'error', `Error: ${errorMsg}`);
+            showResult(resultEl, 'error', `Error: ${esc(errorMsg)}`);
         }
     } catch (error) {
-        showResult(resultEl, 'error', `Error: ${error.message}`);
+        showResult(resultEl, 'error', `Error: ${esc(error.message)}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Upload & Parse Resume';
@@ -367,7 +375,7 @@ function showPreviewModal(data) {
         let metadataHTML = '<h4>Contact Information</h4>';
         for (const [key, value] of Object.entries(data.metadata)) {
             if (value) {
-                metadataHTML += `<p><strong>${key}:</strong> ${value}</p>`;
+                metadataHTML += `<p><strong>${esc(key)}:</strong> ${esc(value)}</p>`;
             }
         }
         metadataEl.innerHTML = metadataHTML;
@@ -381,9 +389,9 @@ function showPreviewModal(data) {
         const summary = data.parsing_summary;
         parsingInfoEl.innerHTML = `
             <p><strong>Parsing Summary:</strong></p>
-            <p>Total Sections: ${summary.total_sections || 0}</p>
-            <p>Total Blocks: ${summary.total_blocks || 0}</p>
-            <p>Model Used: ${summary.model_used || 'N/A'}</p>
+            <p>Total Sections: ${esc(summary.total_sections || 0)}</p>
+            <p>Total Blocks: ${esc(summary.total_blocks || 0)}</p>
+            <p>Model Used: ${esc(summary.model_used || 'N/A')}</p>
         `;
         parsingInfoEl.style.display = 'block';
     } else {
@@ -397,9 +405,9 @@ function showPreviewModal(data) {
             <div class="preview-block-item" data-index="${index}">
                 <div class="preview-block-header">
                     <div class="preview-block-meta">
-                        <div class="preview-block-category">${block.category}</div>
+                        <div class="preview-block-category">${esc(block.category)}</div>
                         <div class="preview-block-tags">
-                            ${block.tags.map(tag => `<span class="preview-block-tag">${tag}</span>`).join('')}
+                            ${block.tags.map(tag => `<span class="preview-block-tag">${esc(tag)}</span>`).join('')}
                         </div>
                     </div>
                     <div class="preview-block-actions">
@@ -407,7 +415,7 @@ function showPreviewModal(data) {
                         <button class="btn-icon btn-delete" onclick="deletePreviewBlock(${index})" title="Delete">🗑️ Delete</button>
                     </div>
                 </div>
-                <div class="preview-block-content" id="block-content-${index}">${block.content}</div>
+                <div class="preview-block-content" id="block-content-${index}">${esc(block.content)}</div>
             </div>
         `;
     });
@@ -533,8 +541,8 @@ async function confirmBlocks() {
             const resultEl = document.getElementById('upload-result');
             showResult(resultEl, 'success', `
                 <strong>Resume Blocks Saved Successfully!</strong>
-                <br>Blocks Saved: ${data.blocks_saved}
-                <br>Block IDs: ${data.block_ids.join(', ')}
+                <br>Blocks Saved: ${esc(data.blocks_saved)}
+                <br>Block IDs: ${esc(data.block_ids.join(', '))}
             `);
 
             // Refresh blocks list
@@ -570,7 +578,7 @@ async function handleCapture(e) {
     showResult(resultEl, 'success', `
         <strong>Form Capture</strong>
         <br>Use the CLI to capture form schema:
-        <pre>job-ace capture ${jobId}</pre>
+        <pre>job-ace capture ${esc(jobId)}</pre>
         <br>This feature requires browser automation and is best run from the command line.
     `);
 }
@@ -598,17 +606,17 @@ async function handlePrefill(e) {
         if (response.ok) {
             showResult(resultEl, 'success', `
                 <strong>Prefill Plan Generated!</strong>
-                <br>Apply URL: ${data.apply_url}
-                <br>Fields: ${data.fields.length}
-                <br>Uploads: ${data.uploads.length}
-                <pre>${JSON.stringify(data, null, 2)}</pre>
+                <br>Apply URL: ${esc(data.apply_url)}
+                <br>Fields: ${esc(data.fields.length)}
+                <br>Uploads: ${esc(data.uploads.length)}
+                <pre>${esc(JSON.stringify(data, null, 2))}</pre>
             `);
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to generate prefill plan';
-            showResult(resultEl, 'error', `Error: ${errorMsg}`);
+            showResult(resultEl, 'error', `Error: ${esc(errorMsg)}`);
         }
     } catch (error) {
-        showResult(resultEl, 'error', `Network error: ${error.message}`);
+        showResult(resultEl, 'error', `Network error: ${esc(error.message)}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Generate Prefill Plan';
@@ -646,18 +654,18 @@ async function handleSubmit(e) {
         if (response.ok) {
             showResult(resultEl, 'success', `
                 <strong>Application Logged Successfully!</strong>
-                <br>Application ID: ${data.application_id}
-                <br>Status: ${data.status}
-                <br>Applied At: ${new Date(data.applied_at).toLocaleString()}
+                <br>Application ID: ${esc(data.application_id)}
+                <br>Status: ${esc(data.status)}
+                <br>Applied At: ${esc(new Date(data.applied_at).toLocaleString())}
             `);
             document.getElementById('submit-form').reset();
             loadApplications();
         } else {
             const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to log submission';
-            showResult(resultEl, 'error', `Error: ${errorMsg}`);
+            showResult(resultEl, 'error', `Error: ${esc(errorMsg)}`);
         }
     } catch (error) {
-        showResult(resultEl, 'error', `Network error: ${error.message}`);
+        showResult(resultEl, 'error', `Network error: ${esc(error.message)}`);
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Log Submission';
@@ -687,11 +695,11 @@ function displayJobs() {
 
     jobsList.innerHTML = jobs.map(job => `
         <div class="job-item">
-            <h4>${job.title || 'Untitled Job'}</h4>
-            <p><strong>Company:</strong> ${job.company}</p>
-            <p><strong>Location:</strong> ${job.location || 'N/A'}</p>
-            <p><strong>Job ID:</strong> ${job.id}</p>
-            <p><strong>URL:</strong> <a href="${job.url}" target="_blank">${job.url}</a></p>
+            <h4>${esc(job.title || 'Untitled Job')}</h4>
+            <p><strong>Company:</strong> ${esc(job.company)}</p>
+            <p><strong>Location:</strong> ${esc(job.location || 'N/A')}</p>
+            <p><strong>Job ID:</strong> ${esc(job.id)}</p>
+            <p><strong>URL:</strong> <a href="${esc(job.url)}" target="_blank">${esc(job.url)}</a></p>
         </div>
     `).join('');
 }
@@ -742,9 +750,9 @@ function displayBlocks() {
     } else {
         blocksList.innerHTML = blocks.map(block => `
             <div class="block-item">
-                <h4>Block ${block.id}: ${block.category}</h4>
-                <p><strong>Tags:</strong> ${block.tags.join(', ')}</p>
-                <p>${block.text}</p>
+                <h4>Block ${esc(block.id)}: ${esc(block.category)}</h4>
+                <p><strong>Tags:</strong> ${esc(block.tags.join(', '))}</p>
+                <p>${esc(block.text)}</p>
             </div>
         `).join('');
     }
@@ -830,10 +838,10 @@ function displayApplications() {
 
     appsList.innerHTML = applications.map(app => `
         <div class="app-item">
-            <h4>${app.job_title}</h4>
-            <p><strong>Status:</strong> ${app.status}</p>
-            <p><strong>Applied:</strong> ${new Date(app.applied_at).toLocaleString()}</p>
-            <p><strong>Job ID:</strong> ${app.job_id}</p>
+            <h4>${esc(app.job_title)}</h4>
+            <p><strong>Status:</strong> ${esc(app.status)}</p>
+            <p><strong>Applied:</strong> ${esc(new Date(app.applied_at).toLocaleString())}</p>
+            <p><strong>Job ID:</strong> ${esc(app.job_id)}</p>
         </div>
     `).join('');
 }
@@ -1111,7 +1119,7 @@ async function renderResumeBlocksEditor() {
         section.className = 'resume-block-category-section';
         section.innerHTML = `
             <div class="category-section-header">
-                <h4 class="category-section-title">${category}</h4>
+                <h4 class="category-section-title">${esc(category)}</h4>
             </div>
             <div class="category-blocks" id="category-${category}"></div>
         `;
@@ -1125,6 +1133,29 @@ async function renderResumeBlocksEditor() {
             const blockEditor = document.createElement('div');
             blockEditor.className = 'resume-block-editor';
             blockEditor.setAttribute('data-block-id', block.id);
+            const hasMetadata = block.job_title || block.company || block.start_date || block.end_date;
+            const metadataHTML = hasMetadata ? `
+                <div class="block-metadata-header">
+                    <div class="block-metadata-fields">
+                        <input type="text" class="meta-input meta-title" placeholder="Job Title" value="${esc(block.job_title || '')}" id="meta-title-${block.id}" />
+                        <input type="text" class="meta-input meta-company" placeholder="Company" value="${esc(block.company || '')}" id="meta-company-${block.id}" />
+                        <input type="text" class="meta-input meta-date" placeholder="Start" value="${esc(block.start_date || '')}" id="meta-start-${block.id}" />
+                        <span class="meta-date-sep">–</span>
+                        <input type="text" class="meta-input meta-date" placeholder="End" value="${esc(block.end_date || '')}" id="meta-end-${block.id}" />
+                    </div>
+                </div>
+            ` : (block.category === 'experience' || block.category === 'education' ? `
+                <div class="block-metadata-header">
+                    <div class="block-metadata-fields">
+                        <input type="text" class="meta-input meta-title" placeholder="Job Title" value="" id="meta-title-${block.id}" />
+                        <input type="text" class="meta-input meta-company" placeholder="Company" value="" id="meta-company-${block.id}" />
+                        <input type="text" class="meta-input meta-date" placeholder="Start" value="" id="meta-start-${block.id}" />
+                        <span class="meta-date-sep">–</span>
+                        <input type="text" class="meta-input meta-date" placeholder="End" value="" id="meta-end-${block.id}" />
+                    </div>
+                </div>
+            ` : '');
+
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
                     <div class="block-editor-selection">
@@ -1137,6 +1168,7 @@ async function renderResumeBlocksEditor() {
                         <button class="btn-delete" onclick="deleteBlockFromEditor(${block.id})">🗑️ Delete</button>
                     </div>
                 </div>
+                ${metadataHTML}
                 <div class="block-editor-content" id="editor-${block.id}"></div>
             `;
 
@@ -1189,7 +1221,13 @@ async function saveBlockContent(blockId) {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                text: content
+                text: content,
+                ...(document.getElementById(`meta-title-${blockId}`) && {
+                    job_title: document.getElementById(`meta-title-${blockId}`).value || null,
+                    company: document.getElementById(`meta-company-${blockId}`).value || null,
+                    start_date: document.getElementById(`meta-start-${blockId}`).value || null,
+                    end_date: document.getElementById(`meta-end-${blockId}`).value || null,
+                })
             })
         });
 
@@ -1198,6 +1236,12 @@ async function saveBlockContent(blockId) {
             const block = blocks.find(b => b.id === blockId);
             if (block) {
                 block.text = content;
+                if (document.getElementById(`meta-title-${blockId}`)) {
+                    block.job_title = document.getElementById(`meta-title-${blockId}`).value || null;
+                    block.company = document.getElementById(`meta-company-${blockId}`).value || null;
+                    block.start_date = document.getElementById(`meta-start-${blockId}`).value || null;
+                    block.end_date = document.getElementById(`meta-end-${blockId}`).value || null;
+                }
             }
 
             // Update the reassembled view if comparison is visible

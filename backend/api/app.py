@@ -139,6 +139,10 @@ def list_blocks(db: Session = Depends(get_db)) -> list[dict]:
             "category": block.category,
             "tags": block.tags.split(",") if block.tags else [],
             "text": block.text,
+            "job_title": block.job_title,
+            "company": block.company,
+            "start_date": block.start_date,
+            "end_date": block.end_date,
         }
         for block in blocks
     ]
@@ -196,6 +200,10 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                 category=block_data.get("category"),
                 tags=",".join(block_data.get("tags", [])),
                 text=block_data.get("content", ""),  # Note: converter uses "content", DB uses "text"
+                job_title=block_data.get("job_title"),
+                company=block_data.get("company"),
+                start_date=block_data.get("start_date"),
+                end_date=block_data.get("end_date"),
             )
             db.add(block)
             db.flush()  # Flush to get the ID
@@ -273,6 +281,10 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
                 category=block.get("category", "other"),
                 tags=block.get("tags", []),
                 content=block.get("content", ""),
+                job_title=block.get("job_title"),
+                company=block.get("company"),
+                start_date=block.get("start_date"),
+                end_date=block.get("end_date"),
             )
             for block in blocks_data
         ]
@@ -321,6 +333,10 @@ def confirm_resume_blocks(payload: ConfirmResumeBlocksRequest, db: Session = Dep
                 category=block_data.category,
                 tags=",".join(block_data.tags),
                 text=block_data.content,
+                job_title=block_data.job_title,
+                company=block_data.company,
+                start_date=block_data.start_date,
+                end_date=block_data.end_date,
             )
             db.add(block)
             db.flush()  # Flush to get the ID
@@ -369,6 +385,14 @@ def update_block(block_id: int, payload: UpdateBlockRequest, db: Session = Depen
         block.tags = payload.tags
     if payload.text is not None:
         block.text = payload.text
+    if payload.job_title is not None:
+        block.job_title = payload.job_title
+    if payload.company is not None:
+        block.company = payload.company
+    if payload.start_date is not None:
+        block.start_date = payload.start_date
+    if payload.end_date is not None:
+        block.end_date = payload.end_date
 
     db.commit()
     db.refresh(block)
@@ -378,6 +402,10 @@ def update_block(block_id: int, payload: UpdateBlockRequest, db: Session = Depen
         category=block.category,
         tags=block.tags,
         text=block.text,
+        job_title=block.job_title,
+        company=block.company,
+        start_date=block.start_date,
+        end_date=block.end_date,
     )
 
 

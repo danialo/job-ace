@@ -81,6 +81,10 @@ class UpdateBlockRequest(BaseModel):
     category: Optional[str] = None
     tags: Optional[str] = None
     text: Optional[str] = None
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 
 class UpdateBlockResponse(BaseModel):
@@ -88,6 +92,10 @@ class UpdateBlockResponse(BaseModel):
     category: str
     tags: str
     text: str
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     message: str = "Block updated successfully"
 
 
@@ -107,6 +115,10 @@ class ParsedBlock(BaseModel):
     category: str
     tags: List[str]
     content: str
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 
 class ResumeSectionInfo(BaseModel):
@@ -132,6 +144,10 @@ class ConfirmBlockData(BaseModel):
     category: str
     tags: List[str]
     content: str
+    job_title: Optional[str] = None
+    company: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 
 class ConfirmResumeBlocksRequest(BaseModel):

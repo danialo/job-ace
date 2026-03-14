@@ -12,8 +12,8 @@ class Settings(BaseSettings):
 
     # LLM Models - separate configs for different tasks
     llm_extraction_model: str = "gpt-4o-mini"  # Job extraction: fast, structured outputs
-    llm_resume_parsing_model: str = "gpt-4o"  # Resume parsing: fast and accurate
-    llm_tailoring_model: str = "gpt-4o"  # Resume tailoring: reliable quality analysis
+    llm_resume_parsing_model: str = "gpt-4.1"  # Resume parsing: fast and accurate
+    llm_tailoring_model: str = "gpt-4.1"  # Resume tailoring: reliable quality analysis
 
     openai_api_key: str = ""
     playwright_headless: bool = True

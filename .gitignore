@@ -27,8 +27,10 @@ artifacts/
 !example_resume_blocks.xml
 !docs/schemas/*.xsd
 
-# Test files
-test_resume*
+# User resume files (not test code)
+test_resume*.pdf
+test_resume*.docx
+test_resume*.txt
 danial_resume*
 
 # IDE

@@ -122,6 +122,10 @@ class ResumeBlock(BaseModel):
     category: str = Field(description="Block category: summary, experience, education, skills, projects, certifications, awards, or other")
     tags: List[str] = Field(default_factory=list, description="Relevant technology/skill tags extracted from content")
     content: str = Field(description="The actual text content of this block")
+    job_title: str | None = Field(default=None, description="Job title/role (experience blocks only)")
+    company: str | None = Field(default=None, description="Company/organization name (experience blocks only)")
+    start_date: str | None = Field(default=None, description="Start date in original format, e.g. '2022', 'Jan 2022'")
+    end_date: str | None = Field(default=None, description="End date in original format, e.g. '2024', 'Present'")
 
 
 class ResumeParsingSchema(BaseModel):
@@ -328,6 +332,10 @@ For each block, provide:
                 "category": block.category,
                 "tags": block.tags,
                 "content": block.content,
+                "job_title": block.job_title,
+                "company": block.company,
+                "start_date": block.start_date,
+                "end_date": block.end_date,
             }
             for block in parsed.blocks
         ]
@@ -411,6 +419,10 @@ RESUME TEXT:
                         "category": block.category,
                         "tags": block.tags,
                         "content": block.content,
+                        "job_title": block.job_title,
+                        "company": block.company,
+                        "start_date": block.start_date,
+                        "end_date": block.end_date,
                     }
                     for block in parsed.blocks
                 ]
@@ -660,6 +672,10 @@ class StubLLMClient(BaseLLMClient):
             'category': category,
             'tags': tags[:10],  # Limit to 10 tags
             'content': section_text.strip(),
+            'job_title': None,
+            'company': None,
+            'start_date': None,
+            'end_date': None,
         }]
 
     @staticmethod

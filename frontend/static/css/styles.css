@@ -830,6 +830,51 @@ footer {
     gap: 0.5rem;
 }
 
+.block-metadata-header {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.5rem;
+}
+
+.block-metadata-fields {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.meta-input {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+    background: var(--bg-color);
+}
+
+.meta-input:focus {
+    border-color: var(--primary-color);
+    outline: none;
+}
+
+.meta-input.meta-title {
+    flex: 2;
+    font-weight: 600;
+}
+
+.meta-input.meta-company {
+    flex: 2;
+}
+
+.meta-input.meta-date {
+    width: 5rem;
+    flex: 0 0 auto;
+}
+
+.meta-date-sep {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
 .btn-save {
     padding: 0.5rem 1rem;
     font-size: 0.875rem;

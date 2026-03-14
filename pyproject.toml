@@ -40,7 +40,9 @@ dev = [
     "pytest>=8.2.2",
     "pytest-asyncio>=0.23.6",
     "pytest-cov>=5.0.0",
-    "ruff>=0.4.5"
+    "pytest-playwright>=0.5.0",
+    "ruff>=0.4.5",
+    "httpx>=0.27.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -54,5 +56,8 @@ ignore = ["B008"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -q"
+addopts = "-ra -q -m 'not e2e'"
 pythonpath = ["backend", "cli"]
+markers = [
+    "e2e: End-to-end browser tests (require Playwright)",
+]

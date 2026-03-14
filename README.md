@@ -2,16 +2,19 @@
 
 **Local-First Job Application Assistant**
 
-Job Ace is an intelligent job application automation system that helps you capture job postings, tailor your resume, and streamline the application process.
+Job Ace is an intelligent job application automation system that helps you capture job postings, parse and tailor your resume, and streamline the application process. All data stays on your machine.
 
 ## Features
 
-- **Job Posting Capture**: Automatically fetch and parse job postings from URLs
-- **Resume Tailoring**: Match your resume blocks to job requirements and generate tailored resumes
+- **Resume Intake**: Upload PDF/DOCX/TXT resumes with multi-stage LLM parsing into structured blocks
+- **Structured Experience Metadata**: Job title, company, and dates anchored to each experience block
+- **Job Posting Capture**: Fetch and parse job postings with Cloudflare bypass (httpx + Playwright fallback)
+- **Resume Tailoring**: Match resume blocks to job requirements with coverage analysis
 - **Form Capture**: Capture application form schemas using Playwright automation
 - **Prefill Planning**: Generate automated form-filling plans
 - **Application Tracking**: Log and track your job applications
-- **Modern Web UI**: Clean, intuitive interface for managing your job search
+- **Multi-Provider LLM**: OpenAI (GPT-4.1, GPT-4o-mini), Anthropic (Claude), or offline stub
+- **Modern Web UI**: 5-tab interface with Quill.js rich text editing
 - **Local-First**: All data stored locally in SQLite with filesystem artifacts
 
 ## Quick Start
@@ -19,51 +22,23 @@ Job Ace is an intelligent job application automation system that helps you captu
 ### 1. Installation
 
 ```bash
-# Clone the repository (if not already done)
 cd job-ace
 
-# Create virtual environment
+# Create and activate virtual environment
 python3 -m venv .venv
-
-# Activate virtual environment
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate
 
 # Install dependencies
 pip install -e .
+
+# Install dev dependencies (for testing)
+pip install -e ".[dev]"
 
 # Install Playwright browsers
 playwright install chromium
 ```
 
-### 2. Initialize Database
-
-```bash
-job-ace init
-```
-
-### 3. Load Resume Blocks
-
-Create a YAML file with your resume blocks (see `example_resume_blocks.yaml`):
-
-```yaml
-- category: summary
-  tags: [software-engineer, full-stack]
-  text: |
-    Your professional summary here...
-
-- category: experience
-  tags: [python, backend]
-  text: |
-    Your work experience here...
-```
-
-Load the blocks:
-
-```bash
-job-ace load-blocks example_resume_blocks.yaml
-```
-
-### 4. Start the Web Interface
+### 2. Start the Web Interface
 
 ```bash
 ./start.sh
@@ -75,274 +50,184 @@ Or manually:
 python -m backend.main
 ```
 
-The web interface will be available at: **http://172.239.66.45:3000**
+The web interface will be available at: **http://localhost:3000**
 
-### 5. (Optional) Configure LLM Provider
+### 3. Configure LLM Provider
 
-By default, Job Ace uses a stub LLM client with regex-based heuristics. For better job parsing and resume tailoring, configure a real LLM provider:
+By default, Job Ace uses a stub LLM client with regex-based heuristics. For production use, configure OpenAI or Anthropic:
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
+# Create .env file
+cat > .env << 'EOF'
+# OpenAI (recommended)
+OPENAI_API_KEY=sk-your-key-here
 
-# Edit .env and set:
-JOB_ACE_LLM_PROVIDER=anthropic
-JOB_ACE_ANTHROPIC_API_KEY=sk-ant-your-key-here
+# Or Anthropic
+# JOB_ACE_LLM_PROVIDER=anthropic
+# JOB_ACE_ANTHROPIC_API_KEY=sk-ant-your-key-here
+EOF
 ```
 
-**Supported providers:**
-- `stub` (default) - Regex-based heuristics, no API calls
-- `anthropic` - Claude API for intelligent parsing and tailoring
+**Dual-model strategy** — different models for different tasks:
 
-**LLM tuning options:**
-- `JOB_ACE_ANTHROPIC_MODEL` - Model to use (default: `claude-sonnet-4-20250514`)
-- `JOB_ACE_LLM_MAX_TOKENS` - Max response tokens (default: 4096)
-- `JOB_ACE_LLM_TEMPERATURE` - Response randomness (default: 0.3)
+| Task | Default Model | Config Variable |
+|---|---|---|
+| Job extraction | `gpt-4o-mini` | `JOB_ACE_LLM_EXTRACTION_MODEL` |
+| Resume parsing | `gpt-4.1` | `JOB_ACE_LLM_RESUME_PARSING_MODEL` |
+| Resume tailoring | `gpt-4.1` | `JOB_ACE_LLM_TAILORING_MODEL` |
+
+Set any model to `stub-model` to disable LLM for that task and use regex fallback.
 
 ## Using the Web Interface
 
-### Tab 1: Capture Job
+### Tab 1: Resume Intake
+
+1. Upload your resume (PDF, DOCX, or TXT)
+2. The system parses it into structured blocks using multi-stage LLM analysis
+3. Preview and edit individual blocks with the Quill rich text editor
+4. Experience blocks show structured metadata (job title, company, dates)
+5. Compare original resume side-by-side with parsed blocks
+
+### Tab 2: Capture Job
 
 1. Enter a job posting URL
 2. Click "Capture Job" to fetch and analyze the posting
-3. The system extracts job title, company, requirements, and other metadata
-4. Job details are saved to the database with all artifacts
+3. The system extracts title, company, requirements, and metadata
+4. Handles Cloudflare-protected sites via Playwright fallback
 
-### Tab 2: Tailor Resume
+### Tab 3: Tailor Resume
 
 1. Select a captured job from the dropdown
-2. Enter comma-separated resume block IDs (e.g., `1,2,3,4`)
-3. Optionally specify a resume version
-4. Click "Generate Tailored Resume" to create a customized resume
-5. View the tailored resume with coverage metrics
+2. Choose which resume blocks to include
+3. Click "Generate Tailored Resume" with coverage analysis
+4. View keyword coverage, uncovered requirements, and compliance check
 
-### Tab 3: Capture Form
+### Tab 4: Capture Form
 
-1. Select a job to capture its application form
-2. Use the CLI for browser automation: `job-ace capture <job_id>`
-3. Generate a prefill plan from the captured form schema
+1. Select a job to capture its application form schema
+2. Generate a prefill plan for automated form filling
 
-### Tab 4: Apply
+### Tab 5: Apply
 
 1. Select a job you've applied to
-2. Enter confirmation details (ID, message, screenshot path)
-3. Click "Log Submission" to record the application
-4. Track your application status
+2. Enter confirmation details and optional screenshot
+3. Track application status
 
 ## CLI Commands
 
-### Initialize Database
 ```bash
-job-ace init
-```
-
-### Convert Resume to XML
-```bash
-job-ace convert-resume <resume-file> [--output-file <output.xml>]
-
-# Examples:
-job-ace convert-resume my_resume.pdf --output-file my_resume.xml
-job-ace convert-resume my_resume.docx  # Prints to stdout
-job-ace convert-resume my_resume.txt --output-file resume.xml
-```
-
-### Load Resume Blocks
-```bash
-job-ace load-blocks <yaml-or-xml-file>
-```
-
-### Capture Job Posting
-```bash
-job-ace intake <job-url>
-job-ace intake <job-url> --force  # Re-capture even if exists
-```
-
-### Tailor Resume
-```bash
-job-ace tailor <job-id> <block-ids>
-# Example: job-ace tailor 1 1,2,3,4
-```
-
-### Capture Application Form
-```bash
-job-ace capture <job-id>
-```
-
-### Generate Prefill Plan
-```bash
-job-ace prefill-plan <job-id>
-```
-
-### Apply (Execute Prefill)
-```bash
-job-ace apply <worksheet-path>
-```
-
-### Log Submission
-```bash
-job-ace log-submit <job-id>
+job-ace init                          # Initialize database
+job-ace convert-resume <file>         # Convert resume to XML
+job-ace load-blocks <file.yaml>       # Load resume blocks from YAML/XML
+job-ace intake <url> [--force]        # Capture job posting
+job-ace tailor <job-id> <block-ids>   # Tailor resume (e.g. job-ace tailor 1 1,2,3)
+job-ace capture <job-id>              # Capture application form
+job-ace prefill-plan <job-id>         # Generate prefill plan
+job-ace apply <worksheet-path>        # Execute prefill automation
+job-ace log-submit <job-id>           # Log application submission
 ```
 
 ## API Documentation
 
 Once the server is running, visit:
-- **Swagger UI**: http://172.239.66.45:3000/docs
-- **ReDoc**: http://172.239.66.45:3000/redoc
+- **Swagger UI**: http://localhost:3000/docs
+- **ReDoc**: http://localhost:3000/redoc
 
-### Available Endpoints
+### Endpoints
 
-- `POST /intake` - Capture job posting
-- `POST /tailor` - Generate tailored resume
-- `POST /prefill-plan` - Generate form prefill plan
-- `POST /log-submit` - Log application submission
-- `GET /artifact/{job_id}` - Retrieve artifact path
-
-## Project Structure
-
-```
-job-ace/
-├── backend/              # FastAPI backend
-│   ├── api/             # API endpoints
-│   ├── browser/         # Playwright automation
-│   ├── db/              # Database session management
-│   ├── models/          # SQLAlchemy models & schemas
-│   ├── services/        # Business logic
-│   └── utils/           # Utilities
-├── cli/                 # Typer CLI
-├── frontend/            # Web UI
-│   ├── static/
-│   │   ├── css/        # Styles
-│   │   └── js/         # JavaScript
-│   └── index.html      # Main page
-├── tests/               # Test suite
-├── docs/                # Documentation
-├── artifacts/           # Local storage for job data
-├── db.sqlite3          # SQLite database
-└── pyproject.toml      # Project configuration
-```
-
-## Data Storage
-
-### Database (SQLite)
-- **job_posting**: Job details and metadata
-- **company**: Company information
-- **application**: Application status and tracking
-- **resume_block**: Reusable resume sections
-- **artifact**: File artifacts with deduplication
-
-### Filesystem Artifacts
-Organized by job ID in `artifacts/`:
-```
-artifacts/
-└── job-<id>/
-    ├── raw/              # Original captures
-    │   ├── posting.html
-    │   ├── posting.text
-    │   └── jd.json
-    ├── derived/          # Generated content
-    │   ├── tailor_request.json
-    │   ├── tailor_response.json
-    │   └── resume_<version>.txt
-    └── submission/       # Application records
-        ├── worksheet_answers.json
-        └── replay_log.json
-```
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/intake` | Capture job posting |
+| `POST` | `/tailor` | Generate tailored resume |
+| `POST` | `/parse-resume` | Parse resume (preview) |
+| `POST` | `/confirm-resume-blocks` | Save parsed blocks |
+| `POST` | `/upload-resume` | Upload and auto-save resume |
+| `POST` | `/prefill-plan` | Generate form prefill plan |
+| `POST` | `/log-submit` | Log application submission |
+| `POST` | `/blocks/{id}/improve` | Improve block via LLM |
+| `GET` | `/jobs` | List all jobs |
+| `GET` | `/blocks` | List all resume blocks |
+| `GET` | `/applications` | List all applications |
+| `GET` | `/artifact/{job_id}` | Retrieve artifact path |
+| `PUT` | `/blocks/{id}` | Update a resume block |
+| `DELETE` | `/blocks/{id}` | Delete a resume block |
+| `DELETE` | `/blocks` | Delete all blocks |
 
 ## Architecture
 
 ```
 User (Web UI or CLI)
-    ↓
-FastAPI Backend
-    ↓
+    |
+FastAPI Backend (localhost:3000)
+    |
 Services Layer
-    ├── IntakeService → Capture job postings
-    ├── TailorService → Generate tailored resumes
-    ├── CaptureService → Extract form schemas
-    ├── PrefillPlanner → Build automation plans
-    └── SubmissionLogger → Track applications
-    ↓
-Database (SQLite) + Artifacts (Filesystem)
+    ├── IntakeService     → Capture job postings (httpx + Playwright)
+    ├── TailorService     → Generate tailored resumes
+    ├── ResumeConverter   → Multi-stage resume parsing
+    ├── AnalysisService   → Job page analysis
+    ├── PrefillPlanner    → Build automation plans
+    └── SubmissionLogger  → Track applications
+    |
+LLM Layer (OpenAI / Anthropic / Stub)
+    |
+Data Layer
+    ├── SQLite Database (db.sqlite3)
+    └── Artifacts (artifacts/<job-dir>/)
+```
+
+## Testing
+
+```bash
+# Run backend tests (84 tests)
+pytest
+
+# Run with coverage
+pytest --cov
+
+# Run E2E Playwright tests (17 tests)
+pytest tests/e2e/ -m e2e
+
+# Run everything
+pytest -m "" tests/
+```
+
+**101 tests total** covering services, API endpoints, models, schemas, LLM factory, and E2E browser tests.
+
+## Project Structure
+
+```
+job-ace/
+├── backend/
+│   ├── api/             # FastAPI endpoints
+│   ├── browser/         # Playwright automation
+│   ├── db/              # Database session management
+│   ├── models/          # SQLAlchemy models & Pydantic schemas
+│   └── services/        # Business logic (intake, tailor, LLM, etc.)
+├── cli/                 # Typer CLI
+├── frontend/
+│   ├── static/
+│   │   ├── css/         # Styles
+│   │   └── js/          # Vanilla JavaScript
+│   └── index.html       # Main page (5-tab interface)
+├── tests/
+│   ├── e2e/             # Playwright browser tests
+│   ├── conftest.py      # Shared fixtures (isolated in-memory DB)
+│   └── test_*.py        # Unit and integration tests
+├── artifacts/           # Local storage for job data
+├── db.sqlite3           # SQLite database
+└── pyproject.toml       # Project configuration
 ```
 
 ## Technologies
 
 - **Backend**: FastAPI, SQLAlchemy, Pydantic
+- **LLM**: OpenAI (GPT-4.1, GPT-4o-mini), Anthropic (Claude), structured outputs
 - **CLI**: Typer
 - **Automation**: Playwright
-- **Database**: SQLite with aiosqlite
-- **Frontend**: Vanilla JavaScript, HTML5, CSS3
-- **Parsing**: BeautifulSoup4, YAML
-- **Utilities**: structlog, httpx, Jinja2
-
-## Development
-
-### Running Tests
-```bash
-pytest
-pytest --cov  # With coverage
-```
-
-### Linting
-```bash
-ruff check .
-```
-
-### Install Development Dependencies
-```bash
-pip install -e ".[dev]"
-```
-
-## Roadmap
-
-See `roadmap.md` for the full project vision and planned features.
-
-### Current Status (Week 1 MVP)
-- ✅ Job posting capture and parsing
-- ✅ Resume tailoring system
-- ✅ Form schema capture
-- ✅ Prefill planning
-- ✅ Application logging
-- ✅ Web UI interface
-- ✅ CLI commands
-
-### Coming Soon
-- Real LLM integration (Claude, GPT)
-- Advanced form parsing (multi-step workflows)
-- Portal-specific selector catalogs
-- Enhanced compliance checking
-- Scoring and ranking engine
-- Worksheet UI for form filling
-- Multi-device sync
-
-## Contributing
-
-This is a week-one MVP. Contributions, bug reports, and feature requests are welcome!
+- **Database**: SQLite
+- **Frontend**: Vanilla JavaScript, Quill.js, HTML5, CSS3
+- **Testing**: pytest, pytest-playwright, FastAPI TestClient
 
 ## License
 
 MIT
-
-## Notes
-
-- This system is designed for **authorized use only** - use it responsibly and ethically
-- Always respect website terms of service and robots.txt
-- The system stores data locally for privacy and control
-- Playwright automation requires proper browser drivers (installed via `playwright install`)
-
-## Support
-
-For issues or questions, check the documentation in `docs/` or review the code.
-
-## Example Workflow
-
-1. **Start the server**: `./start.sh`
-2. **Open the web UI**: http://172.239.66.45:3000
-3. **Capture a job**: Enter URL in "Capture Job" tab
-4. **Load resume blocks**: `job-ace load-blocks example_resume_blocks.yaml`
-5. **Tailor resume**: Select job and blocks in "Tailor Resume" tab
-6. **Generate prefill plan**: Use "Capture Form" tab
-7. **Apply**: Fill out application and log it in "Apply" tab
-8. **Track**: Monitor your applications
-
-Happy job hunting! 🎯

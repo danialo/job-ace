@@ -3,8 +3,8 @@
 # Job Ace Startup Script
 
 echo "Starting Job Ace..."
-echo "API will be available at: http://172.239.66.45:3000"
-echo "Web UI will be available at: http://172.239.66.45:3000"
+echo "API will be available at: http://localhost:3000"
+echo "Web UI will be available at: http://localhost:3000"
 echo ""
 echo "Press Ctrl+C to stop"
 echo ""

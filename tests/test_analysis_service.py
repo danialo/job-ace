@@ -1,9 +1,8 @@
+"""Tests for AnalysisService."""
 import json
 from pathlib import Path
 
 from backend.browser.analyzer import BrowserCapture
-from backend.config import get_settings
-from backend.db.session import get_session, init_db
 from backend.models import models
 from backend.services.analysis import AnalysisService
 
@@ -32,33 +31,35 @@ class DummyAnalyzer:
             metadata={"source": "dummy"},
         )
 
+    def _html_to_text(self, html: str) -> str:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        return soup.get_text("\n", strip=True)
 
-def test_analysis_service_writes_artifacts(tmp_path):
-    init_db()
-    settings = get_settings()
-    settings.data_root = tmp_path
 
-    with get_session() as session:
-        company = models.Company(name="SampleCo")
-        session.add(company)
-        session.flush()
+def test_analysis_service_writes_artifacts(db_session, sample_job, patched_settings):
+    service = AnalysisService(db_session, analyzer=DummyAnalyzer())
+    result = service.run(sample_job.id, recapture=True)
 
-        job_posting = models.JobPosting(
-            company_id=company.id,
-            url="https://example.com/jobs/python",
-            title="Python Engineer",
-            location="Remote",
-        )
-        session.add(job_posting)
-        session.flush()
+    analysis_path = Path(result["analysis_path"])
+    assert analysis_path.exists()
+    payload = json.loads(analysis_path.read_text(encoding="utf-8"))
+    assert payload["bullet_count"] == 2
+    assert "FastAPI" in payload.get("sample_text", "")
+    assert result["sections"]["headings"][0] == "Senior Python Engineer"
+    assert db_session.get(models.JobPosting, sample_job.id).analysis_json_path == str(analysis_path)
 
-        service = AnalysisService(session, analyzer=DummyAnalyzer())
-        result = service.run(job_posting.id, recapture=True)
 
-        analysis_path = Path(result["analysis_path"])
-        assert analysis_path.exists()
-        payload = json.loads(analysis_path.read_text(encoding="utf-8"))
-        assert payload["bullet_count"] == 2
-        assert "FastAPI" in payload.get("sample_text", "")
-        assert result["sections"]["headings"][0] == "Senior Python Engineer"
-        assert session.get(models.JobPosting, job_posting.id).analysis_json_path == str(analysis_path)
+def test_analysis_service_missing_job_raises(db_session, patched_settings):
+    service = AnalysisService(db_session, analyzer=DummyAnalyzer())
+    import pytest
+    with pytest.raises(ValueError, match="not found"):
+        service.run(9999, recapture=True)
+
+
+def test_analysis_extract_sections():
+    html = "<html><h1>Title</h1><h2>Sub</h2><p>Paragraph</p><ul><li>Item 1</li><li>Item 2</li></ul></html>"
+    sections = AnalysisService._extract_sections(html)
+    assert sections["headings"] == ["Title", "Sub"]
+    assert len(sections["bullets"]) == 2
+    assert "Paragraph" in sections["paragraphs"]

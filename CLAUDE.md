@@ -35,9 +35,9 @@ job-ace init
 # Or manually
 python -m backend.main
 
-# Server runs at http://172.239.66.45:3000
-# API docs: http://172.239.66.45:3000/docs
-# ReDoc: http://172.239.66.45:3000/redoc
+# Server runs at http://localhost:3000
+# API docs: http://localhost:3000/docs
+# ReDoc: http://localhost:3000/redoc
 ```
 
 ### Testing and Linting
@@ -390,4 +390,4 @@ Future enhancements:
 - Portal-specific selector catalogs
 - Scoring and ranking engine
 - Enhanced compliance checking
-- this project is NOT being programmed on any 172.x address. It is being programmed for localhost.
+- NEVER hardcode IP addresses in this project. This is a local-first application — always use `localhost` or `127.0.0.1`. No external IPs should appear anywhere in the codebase, configs, or documentation.

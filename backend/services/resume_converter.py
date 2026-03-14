@@ -468,13 +468,27 @@ class ResumeConverter:
         return self.to_xml(resume_data)
 
     def _extract_pdf_text(self, file_path: Path) -> str:
-        """Extract text from PDF file."""
+        """Extract text from PDF file.
+
+        Uses layout mode to preserve spatial positioning and avoid
+        word-per-line fragmentation common with default pypdf extraction.
+        """
         try:
             import pypdf
             reader = pypdf.PdfReader(str(file_path))
             text = []
             for page in reader.pages:
-                text.append(page.extract_text())
+                # layout mode preserves column/line structure from the PDF
+                page_text = page.extract_text(extraction_mode="layout")
+                if page_text:
+                    # Collapse runs of whitespace within lines but keep line breaks
+                    cleaned_lines = []
+                    for line in page_text.splitlines():
+                        stripped = line.strip()
+                        if stripped:
+                            # Normalize internal whitespace
+                            cleaned_lines.append(" ".join(stripped.split()))
+                    text.append("\n".join(cleaned_lines))
             return '\n'.join(text)
         except ImportError:
             raise ImportError("pypdf not installed. Run: pip install pypdf")

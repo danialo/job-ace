@@ -103,6 +103,10 @@ class ResumeBlock(Base):
     category: Mapped[Optional[str]] = mapped_column(String)
     tags: Mapped[Optional[str]] = mapped_column(Text)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    job_title: Mapped[Optional[str]] = mapped_column(String)
+    company: Mapped[Optional[str]] = mapped_column(String)
+    start_date: Mapped[Optional[str]] = mapped_column(String)
+    end_date: Mapped[Optional[str]] = mapped_column(String)
     last_reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     usages: Mapped[list["ResumeBlockUsage"]] = relationship(

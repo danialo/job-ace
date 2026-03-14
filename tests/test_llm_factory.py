@@ -16,8 +16,13 @@ from backend.services.llm import (
 
 def test_get_llm_client_default_is_stub():
     """Without config, factory returns StubLLMClient."""
-    with patch("backend.services.llm.get_settings") as mock_settings:
+    with patch("backend.services.llm.get_settings") as mock_settings, \
+         patch("backend.services.llm.os.getenv", return_value=None):
         mock_settings.return_value = MagicMock(
+            openai_api_key="",
+            llm_extraction_model="gpt-4o-mini",
+            llm_tailoring_model="gpt-4o",
+            llm_resume_parsing_model="gpt-4o",
             llm_provider="stub",
             anthropic_api_key=None,
         )
@@ -27,8 +32,13 @@ def test_get_llm_client_default_is_stub():
 
 def test_get_llm_client_anthropic_without_key_falls_back():
     """Anthropic provider without API key falls back to stub."""
-    with patch("backend.services.llm.get_settings") as mock_settings:
+    with patch("backend.services.llm.get_settings") as mock_settings, \
+         patch("backend.services.llm.os.getenv", return_value=None):
         mock_settings.return_value = MagicMock(
+            openai_api_key="",
+            llm_extraction_model="gpt-4o-mini",
+            llm_tailoring_model="gpt-4o",
+            llm_resume_parsing_model="gpt-4o",
             llm_provider="anthropic",
             anthropic_api_key=None,
         )
@@ -38,8 +48,13 @@ def test_get_llm_client_anthropic_without_key_falls_back():
 
 def test_get_llm_client_anthropic_with_key():
     """Anthropic provider with API key returns AnthropicLLMClient."""
-    with patch("backend.services.llm.get_settings") as mock_settings:
+    with patch("backend.services.llm.get_settings") as mock_settings, \
+         patch("backend.services.llm.os.getenv", return_value=None):
         mock_settings.return_value = MagicMock(
+            openai_api_key="",
+            llm_extraction_model="gpt-4o-mini",
+            llm_tailoring_model="gpt-4o",
+            llm_resume_parsing_model="gpt-4o",
             llm_provider="anthropic",
             anthropic_api_key="sk-ant-test-key",
             anthropic_model="claude-sonnet-4-20250514",
