@@ -9,6 +9,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -56,7 +57,7 @@ def _text_to_html(text: str) -> str:
                 in_list = False
             continue
 
-        bullet_match = re.match(r"^[-•*]\s+(.+)$", stripped)
+        bullet_match = re.match(r"^[-•●*►▪▸]\s*(.+)$", stripped)
         if bullet_match:
             if not in_list:
                 html_parts.append("<ul>")
@@ -188,7 +189,7 @@ class ExportService:
                     stripped = line.strip()
                     if not stripped:
                         continue
-                    bullet_match = re.match(r"^[-•*]\s+(.+)$", stripped)
+                    bullet_match = re.match(r"^[-•●*►▪▸]\s*(.+)$", stripped)
                     if bullet_match:
                         doc.add_paragraph(bullet_match.group(1), style="List Bullet")
                     else:
@@ -224,7 +225,7 @@ class ExportService:
 
             entry = {
                 "text": block.text,
-                "html_content": _text_to_html(block.text),
+                "html_content": Markup(_text_to_html(block.text)),
                 "job_title": block.job_title,
                 "company": block.company,
                 "dates": _format_dates(block.start_date, block.end_date),
