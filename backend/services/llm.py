@@ -579,6 +579,51 @@ Be extremely thorough and precise - this directly impacts job application succes
             "model_used": self.model,
         }
 
+    def check_compliance(
+        self, resume_text: str, source_blocks: List[Dict], job_context: Dict | None = None
+    ) -> ComplianceCheck:
+        """Verify tailored resume doesn't fabricate claims using OpenAI."""
+        blocks_json = json.dumps(source_blocks, indent=2, ensure_ascii=False)
+        job_json = json.dumps(job_context or {}, indent=2, ensure_ascii=False)
+
+        prompt = AnthropicLLMClient.COMPLIANCE_CHECK_PROMPT.format(
+            blocks_json=blocks_json,
+            resume_text=resume_text[:12000],
+            job_context=job_json,
+        )
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model if not self.is_reasoning_model else "gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2000,
+            )
+            text = response.choices[0].message.content.strip()
+
+            # Handle markdown code blocks
+            json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+            if json_match:
+                text = json_match.group(1)
+
+            data = json.loads(text)
+
+            for fab in data.get("fabrications", []):
+                if fab.get("severity") not in ("low", "medium", "high"):
+                    fab["severity"] = "medium"
+
+            result = ComplianceCheck.from_dict(data)
+            logger.info(
+                "Compliance check via OpenAI",
+                ok=result.ok,
+                fabrication_count=len(result.fabrications),
+                confidence=result.confidence,
+            )
+            return result
+        except Exception as e:
+            logger.error("OpenAI compliance check failed, falling back to stub", error=str(e))
+            return StubLLMClient().check_compliance(resume_text, source_blocks, job_context)
+
 
 class StubLLMClient(BaseLLMClient):
     """Deterministic heuristics for local development and tests."""

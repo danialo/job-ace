@@ -81,7 +81,7 @@ def run_compliance(
                 # Build job context for the LLM
                 job_context = {
                     "title": job_posting.title,
-                    "company": job_posting.company,
+                    "company": job_posting.company.name if job_posting.company else None,
                     "url": job_posting.url,
                 }
 

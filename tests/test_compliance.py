@@ -103,10 +103,11 @@ class TestStubLLMCompliance:
         artificial intelligence, blockchain, quantum computing, and
         distributed systems. Published 15 papers and holds 3 patents.
         """
-        
+
         result = client.check_compliance(resume, source_blocks)
         # Should flag because >5% of tokens are new
-        assert len(result.fabrications) > 0 or result.ok is True  # Depends on ratio
+        assert result.ok is False
+        assert len(result.fabrications) > 0
 
     def test_stub_compliance_allows_common_words(self):
         client = StubLLMClient()
