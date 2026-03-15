@@ -77,6 +77,37 @@ class JDExtraction:
         )
 
 
+@dataclass
+class ComplianceCheck:
+    """Result of LLM-powered compliance verification."""
+
+    ok: bool
+    fabrications: List[Dict]  # [{claim: str, explanation: str, severity: str}]
+    style_changes: List[str]  # Acceptable rewording/transitions (not flagged)
+    confidence: float  # 0.0 - 1.0
+    notes: str
+
+    def to_json(self) -> str:
+        payload = {
+            "ok": self.ok,
+            "fabrications": self.fabrications,
+            "style_changes": self.style_changes,
+            "confidence": self.confidence,
+            "notes": self.notes,
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "ComplianceCheck":
+        return cls(
+            ok=data.get("ok", True),
+            fabrications=data.get("fabrications", []),
+            style_changes=data.get("style_changes", []),
+            confidence=data.get("confidence", 0.5),
+            notes=data.get("notes", ""),
+        )
+
+
 class BaseLLMClient(ABC):
     """Abstract base class for LLM clients."""
 
@@ -88,6 +119,13 @@ class BaseLLMClient(ABC):
     @abstractmethod
     def tailor_resume(self, jd: Dict, allowed_blocks: List[Dict]) -> Dict:
         """Generate a tailored resume from job description and resume blocks."""
+        pass
+
+    @abstractmethod
+    def check_compliance(
+        self, resume_text: str, source_blocks: List[Dict], job_context: Dict | None = None
+    ) -> ComplianceCheck:
+        """Verify tailored resume doesn't fabricate claims not in source blocks."""
         pass
 
 
@@ -678,6 +716,62 @@ class StubLLMClient(BaseLLMClient):
             'end_date': None,
         }]
 
+    def check_compliance(
+        self, resume_text: str, source_blocks: List[Dict], job_context: Dict | None = None
+    ) -> ComplianceCheck:
+        """Stub compliance check using simple token matching."""
+        source_tokens = set()
+        for block in source_blocks:
+            source_tokens.update(self._tokenize_text(block.get("text", "")))
+
+        resume_tokens = set(self._tokenize_text(resume_text))
+
+        # Common words that are always allowed (connective prose)
+        allowed_common = {
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+            "of", "with", "by", "from", "as", "is", "are", "was", "were", "be",
+            "been", "being", "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "must", "shall", "can",
+            "this", "that", "these", "those", "i", "my", "me", "we", "our", "you",
+            "your", "they", "their", "it", "its", "which", "who", "whom", "whose",
+            "what", "where", "when", "why", "how", "all", "each", "every", "both",
+            "few", "more", "most", "other", "some", "such", "no", "not", "only",
+            "own", "same", "so", "than", "too", "very", "just", "also", "now",
+            "well", "work", "working", "worked", "new", "first", "last", "long",
+            "great", "good", "high", "old", "big", "small", "large", "over", "under",
+        }
+
+        extraneous = resume_tokens - source_tokens - allowed_common
+
+        # Heuristic: if less than 5% of tokens are extraneous, it's probably fine
+        if len(resume_tokens) > 0:
+            extraneous_ratio = len(extraneous) / len(resume_tokens)
+            ok = extraneous_ratio < 0.05
+        else:
+            ok = True
+            extraneous_ratio = 0.0
+
+        fabrications = []
+        if not ok:
+            fabrications.append({
+                "claim": f"Found {len(extraneous)} tokens not in source blocks",
+                "explanation": f"Tokens: {', '.join(sorted(extraneous)[:10])}{'...' if len(extraneous) > 10 else ''}",
+                "severity": "low" if extraneous_ratio < 0.10 else "medium",
+            })
+
+        return ComplianceCheck(
+            ok=ok,
+            fabrications=fabrications,
+            style_changes=[],
+            confidence=0.6,  # Stub is less confident
+            notes="Heuristic token-based check (stub mode)",
+        )
+
+    @staticmethod
+    def _tokenize_text(text: str) -> List[str]:
+        """Simple tokenization for compliance checking."""
+        return [tok.lower() for tok in re.findall(r"[A-Za-z]+", text) if len(tok) > 2]
+
     @staticmethod
     def _extract(pattern: re.Pattern, lines: List[str]) -> str | None:
         for line in lines:
@@ -723,6 +817,45 @@ Respond with ONLY the JSON object, no markdown or explanation.
 
 Job Posting:
 {text}"""
+
+    COMPLIANCE_CHECK_PROMPT = """You are a compliance auditor verifying that a tailored resume accurately represents the candidate without fabrication.
+
+## Source Resume Blocks
+These are the ONLY claims the candidate has authorized. All facts in the tailored resume must trace back to these blocks:
+{blocks_json}
+
+## Tailored Resume Being Checked
+{resume_text}
+
+## Job Context (for reference only)
+{job_context}
+
+## Instructions
+Analyze the tailored resume and identify:
+1. **Fabrications**: Claims, metrics, skills, or experiences that CANNOT be traced to the source blocks
+   - New numbers/metrics not in source (e.g., "increased sales 50%" when source says "improved sales")
+   - Skills/technologies claimed but not mentioned in source blocks
+   - Job titles, companies, or dates that differ from source
+   - Accomplishments or responsibilities not present in source
+2. **Style changes**: Acceptable rewording, condensing, or transitional phrases that DON'T add new claims
+   - Rephrasing for clarity or keyword matching
+   - Combining related points
+   - Adding common connective phrases
+
+## Output Format
+Return a JSON object with:
+- ok: boolean - true if no fabrications found, false otherwise
+- fabrications: array of {{"claim": string, "explanation": string, "severity": "low"|"medium"|"high"}}
+  - low: Minor embellishment that doesn't change meaning
+  - medium: Added claim that could mislead
+  - high: Significant fabrication (fake metrics, skills, or experience)
+- style_changes: array of strings describing acceptable changes observed
+- confidence: float 0.0-1.0 indicating how confident you are in this assessment
+- notes: string with any additional observations
+
+Be strict about fabrications but reasonable about style. The goal is catching lies, not penalizing good writing.
+
+Respond with ONLY the JSON object, no markdown or explanation."""
 
     TAILOR_RESUME_PROMPT = """You are an expert resume writer helping tailor a resume for a specific job.
 
@@ -842,6 +975,40 @@ Respond with ONLY the JSON object, no markdown or explanation."""
             logger.error("LLM tailoring failed, falling back to stub", error=str(e))
             # Fallback to stub on error
             return StubLLMClient().tailor_resume(jd, allowed_blocks)
+
+    def check_compliance(
+        self, resume_text: str, source_blocks: List[Dict], job_context: Dict | None = None
+    ) -> ComplianceCheck:
+        """Verify tailored resume doesn't fabricate claims using Claude."""
+        blocks_json = json.dumps(source_blocks, indent=2, ensure_ascii=False)
+        job_json = json.dumps(job_context or {}, indent=2, ensure_ascii=False)
+
+        prompt = self.COMPLIANCE_CHECK_PROMPT.format(
+            blocks_json=blocks_json,
+            resume_text=resume_text[:12000],  # Limit size
+            job_context=job_json,
+        )
+
+        try:
+            response = self._call_api(prompt)
+            data = self._parse_json_response(response)
+
+            # Validate severity values
+            for fab in data.get("fabrications", []):
+                if fab.get("severity") not in ("low", "medium", "high"):
+                    fab["severity"] = "medium"
+
+            result = ComplianceCheck.from_dict(data)
+            logger.info(
+                "Compliance check via Anthropic",
+                ok=result.ok,
+                fabrication_count=len(result.fabrications),
+                confidence=result.confidence,
+            )
+            return result
+        except Exception as e:
+            logger.error("LLM compliance check failed, falling back to stub", error=str(e))
+            return StubLLMClient().check_compliance(resume_text, source_blocks, job_context)
 
     def __del__(self):
         if hasattr(self, "_client"):
