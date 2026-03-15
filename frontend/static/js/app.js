@@ -1124,6 +1124,9 @@ async function renderResumeBlocksEditor() {
     // Clear existing content
     container.innerHTML = '';
 
+    // Auto-select all blocks by default
+    selectedBlockIds = blocks.map(b => b.id);
+
     // Render each category section
     for (const [category, categoryBlocks] of Object.entries(blocksByCategory)) {
         const section = document.createElement('div');
@@ -1161,7 +1164,7 @@ async function renderResumeBlocksEditor() {
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
                     <div class="block-editor-selection">
-                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" />
+                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" checked />
                         <label for="select-block-${block.id}">Include in resume</label>
                     </div>
                     <div class="block-editor-actions">

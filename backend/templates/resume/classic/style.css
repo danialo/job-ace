@@ -87,12 +87,19 @@ body {
 }
 
 .block-text ul {
-    padding-left: 16pt;
+    padding-left: 14pt;
     margin: 2pt 0;
+    list-style: none;
 }
 
 .block-text li {
     margin-bottom: 1pt;
+    text-indent: -10pt;
+    padding-left: 10pt;
+}
+
+.block-text li::before {
+    content: "• ";
 }
 
 .block-text p {
@@ -106,4 +113,9 @@ body {
 
 .skills-list p {
     margin-bottom: 2pt;
+}
+
+.skills-group p {
+    margin-bottom: 3pt;
+    line-height: 1.4;
 }
