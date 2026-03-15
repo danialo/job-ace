@@ -13,6 +13,9 @@ function esc(str) {
 let jobs = [];
 let blocks = [];
 let applications = [];
+let lastTailorJobId = null;
+let lastTailorBlockIds = [];
+let lastTailorVersion = 'v1';
 
 // Cookie helpers
 function setCookie(name, value, days = 365) {
@@ -46,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadJobs();
     loadBlocks();
     loadApplications();
+    loadTemplates();
 });
 
 // Tab Management
@@ -244,6 +248,11 @@ async function handleTailor(e) {
                 <br>Compliance: ${data.compliance_pass ? '✅ Pass' : '❌ Fail'}
                 ${data.uncovered.length > 0 ? `<br><strong>Uncovered Keywords:</strong> ${esc(data.uncovered.join(', '))}` : ''}
             `);
+
+            // Store tailor params for export
+            lastTailorJobId = jobId;
+            lastTailorBlockIds = blockIds;
+            lastTailorVersion = resumeVersion;
 
             // Show full resume in preview section
             displayResumePreview(data.ats_text, data);
@@ -743,18 +752,20 @@ async function loadBlocks() {
 }
 
 function displayBlocks() {
-    // Update the blocks list display
+    // Update the blocks list display (element may not exist in current layout)
     const blocksList = document.getElementById('blocks-list');
-    if (blocks.length === 0) {
-        blocksList.innerHTML = '<p class="text-muted">Upload a resume above or use CLI: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>';
-    } else {
-        blocksList.innerHTML = blocks.map(block => `
-            <div class="block-item">
-                <h4>Block ${esc(block.id)}: ${esc(block.category)}</h4>
-                <p><strong>Tags:</strong> ${esc(block.tags.join(', '))}</p>
-                <p>${esc(block.text)}</p>
-            </div>
-        `).join('');
+    if (blocksList) {
+        if (blocks.length === 0) {
+            blocksList.innerHTML = '<p class="text-muted">Upload a resume above or use CLI: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>';
+        } else {
+            blocksList.innerHTML = blocks.map(block => `
+                <div class="block-item">
+                    <h4>Block ${esc(block.id)}: ${esc(block.category)}</h4>
+                    <p><strong>Tags:</strong> ${esc(block.tags.join(', '))}</p>
+                    <p>${esc(block.text)}</p>
+                </div>
+            `).join('');
+        }
     }
 
     // Update the block selector
@@ -1133,8 +1144,9 @@ async function renderResumeBlocksEditor() {
             const blockEditor = document.createElement('div');
             blockEditor.className = 'resume-block-editor';
             blockEditor.setAttribute('data-block-id', block.id);
-            const hasMetadata = block.job_title || block.company || block.start_date || block.end_date;
-            const metadataHTML = hasMetadata ? `
+            const isExperience = block.category === 'experience';
+            const hasMetadata = isExperience && (block.job_title || block.company || block.start_date || block.end_date);
+            const metadataHTML = isExperience ? `
                 <div class="block-metadata-header">
                     <div class="block-metadata-fields">
                         <input type="text" class="meta-input meta-title" placeholder="Job Title" value="${esc(block.job_title || '')}" id="meta-title-${block.id}" />
@@ -1144,17 +1156,7 @@ async function renderResumeBlocksEditor() {
                         <input type="text" class="meta-input meta-date" placeholder="End" value="${esc(block.end_date || '')}" id="meta-end-${block.id}" />
                     </div>
                 </div>
-            ` : (block.category === 'experience' || block.category === 'education' ? `
-                <div class="block-metadata-header">
-                    <div class="block-metadata-fields">
-                        <input type="text" class="meta-input meta-title" placeholder="Job Title" value="" id="meta-title-${block.id}" />
-                        <input type="text" class="meta-input meta-company" placeholder="Company" value="" id="meta-company-${block.id}" />
-                        <input type="text" class="meta-input meta-date" placeholder="Start" value="" id="meta-start-${block.id}" />
-                        <span class="meta-date-sep">–</span>
-                        <input type="text" class="meta-input meta-date" placeholder="End" value="" id="meta-end-${block.id}" />
-                    </div>
-                </div>
-            ` : '');
+            ` : '';
 
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
@@ -1163,7 +1165,7 @@ async function renderResumeBlocksEditor() {
                         <label for="select-block-${block.id}">Include in resume</label>
                     </div>
                     <div class="block-editor-actions">
-                        <button class="btn-improve" onclick="improveBlock(${block.id})">✨ Improve</button>
+                        <button class="btn-polish" onclick="polishBlock(${block.id})">✨ Polish</button>
                         <button class="btn-save" onclick="saveBlockContent(${block.id})">💾 Save</button>
                         <button class="btn-delete" onclick="deleteBlockFromEditor(${block.id})">🗑️ Delete</button>
                     </div>
@@ -1191,8 +1193,19 @@ async function renderResumeBlocksEditor() {
                         }
                     });
 
-                    // Set initial content (plain text)
-                    quill.setText(block.text);
+                    // Set initial content — strip metadata header line if present
+                    let blockText = block.text;
+                    if (block.job_title || block.company) {
+                        const lines = blockText.split('\n');
+                        // Strip all spaces for comparison (PDF extraction splits words)
+                        const firstNorm = (lines[0] || '').replace(/\s/g, '').toLowerCase();
+                        const metaParts = [block.job_title, block.company, block.start_date, block.end_date]
+                            .filter(Boolean).map(p => p.replace(/\s/g, '').toLowerCase());
+                        if (metaParts.length && metaParts.every(p => firstNorm.includes(p))) {
+                            blockText = lines.slice(1).join('\n').trim();
+                        }
+                    }
+                    quill.setText(blockText);
 
                     // Store instance
                     quillEditors[block.id] = quill;
@@ -1266,17 +1279,17 @@ async function saveBlockContent(blockId) {
     }
 }
 
-// Improve block with LLM
-async function improveBlock(blockId) {
-    const improveBtn = document.querySelector(`[data-block-id="${blockId}"] .btn-improve`);
-    const originalBtnText = improveBtn.textContent;
+// Polish block with LLM
+async function polishBlock(blockId) {
+    const polishBtn = document.querySelector(`[data-block-id="${blockId}"] .btn-polish`);
+    const originalBtnText = polishBtn.textContent;
 
-    improveBtn.disabled = true;
-    improveBtn.textContent = '⏳ Improving...';
-    improveBtn.style.background = '#f59e0b';
+    polishBtn.disabled = true;
+    polishBtn.textContent = '⏳ Polishing...';
+    polishBtn.style.background = '#f59e0b';
 
     try {
-        const response = await fetch(`${API_BASE}/blocks/${blockId}/improve`, {
+        const response = await fetch(`${API_BASE}/blocks/${blockId}/polish`, {
             method: 'POST'
         });
 
@@ -1287,21 +1300,21 @@ async function improveBlock(blockId) {
             showImprovementComparison(blockId, data.original_text, data.improved_text);
 
             // Reset button
-            improveBtn.textContent = originalBtnText;
-            improveBtn.style.background = '';
-            improveBtn.disabled = false;
+            polishBtn.textContent = originalBtnText;
+            polishBtn.style.background = '';
+            polishBtn.disabled = false;
         } else {
             const error = await response.json();
             alert(`Error improving block: ${error.detail || 'Unknown error'}`);
-            improveBtn.textContent = originalBtnText;
-            improveBtn.disabled = false;
-            improveBtn.style.background = '';
+            polishBtn.textContent = originalBtnText;
+            polishBtn.disabled = false;
+            polishBtn.style.background = '';
         }
     } catch (error) {
         alert(`Network error: ${error.message}`);
-        improveBtn.textContent = originalBtnText;
-        improveBtn.disabled = false;
-        improveBtn.style.background = '';
+        polishBtn.textContent = originalBtnText;
+        polishBtn.disabled = false;
+        polishBtn.style.background = '';
     }
 }
 
@@ -1313,7 +1326,7 @@ function showImprovementComparison(blockId, originalText, improvedText) {
     modal.innerHTML = `
         <div class="improvement-modal-content">
             <div class="improvement-modal-header">
-                <h3>Review Improvement</h3>
+                <h3>Review Polish</h3>
                 <button class="btn-close-modal" onclick="closeImprovementModal()">✕</button>
             </div>
 
@@ -1332,7 +1345,7 @@ function showImprovementComparison(blockId, originalText, improvedText) {
 
                 <div class="improvement-box">
                     <div class="improvement-box-header">
-                        <h4>Improved</h4>
+                        <h4>Polished</h4>
                         <div class="improvement-box-actions">
                             <input type="checkbox" id="improvement-improved-checkbox-${blockId}" onchange="toggleImprovementBlockSelection(${blockId})" />
                             <label for="improvement-improved-checkbox-${blockId}">Include</label>
@@ -1544,6 +1557,67 @@ function downloadResume() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+async function loadTemplates() {
+    try {
+        const response = await fetch(`${API_BASE}/templates`);
+        if (!response.ok) return;
+        const templates = await response.json();
+        const selector = document.getElementById('template-selector');
+        if (!selector || templates.length === 0) return;
+        selector.innerHTML = '';
+        templates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name;
+            selector.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Failed to load templates:', e);
+    }
+}
+
+async function downloadResumeAs(format) {
+    if (!lastTailorJobId || !lastTailorBlockIds.length) {
+        alert('Please tailor a resume first before downloading.');
+        return;
+    }
+
+    const template = document.getElementById('template-selector')?.value || 'classic';
+
+    try {
+        const response = await fetch(`${API_BASE}/export`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                job_id: lastTailorJobId,
+                block_ids: lastTailorBlockIds,
+                template: template,
+                format: format,
+                resume_version: lastTailorVersion,
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            alert('Export failed: ' + (err.detail || 'Unknown error'));
+            return;
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ext = format === 'pdf' ? 'pdf' : 'docx';
+        a.download = `resume_${lastTailorVersion}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert('Export error: ' + error.message);
+    }
 }
 
 // Add edit form handler on load

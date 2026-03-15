@@ -1,0 +1,109 @@
+@page {
+    size: letter;
+    margin: 0.6in 0.7in;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.35;
+    color: #222;
+}
+
+.contact-header {
+    text-align: center;
+    margin-bottom: 12pt;
+    border-bottom: 1.5pt solid #333;
+    padding-bottom: 8pt;
+}
+
+.contact-header h1 {
+    font-size: 18pt;
+    font-weight: 700;
+    letter-spacing: 0.5pt;
+    margin-bottom: 4pt;
+    text-transform: uppercase;
+}
+
+.contact-info {
+    font-size: 9.5pt;
+    color: #444;
+}
+
+.contact-info span + span::before {
+    content: " | ";
+    color: #999;
+}
+
+.section {
+    margin-bottom: 10pt;
+}
+
+.section-heading {
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8pt;
+    border-bottom: 0.75pt solid #666;
+    padding-bottom: 2pt;
+    margin-bottom: 6pt;
+    color: #333;
+}
+
+.experience-entry {
+    margin-bottom: 8pt;
+}
+
+.experience-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 2pt;
+}
+
+.experience-title {
+    font-weight: 700;
+    font-size: 10.5pt;
+}
+
+.experience-company {
+    font-style: italic;
+}
+
+.experience-dates {
+    font-size: 9.5pt;
+    color: #555;
+    white-space: nowrap;
+}
+
+.block-text {
+    margin-top: 2pt;
+}
+
+.block-text ul {
+    padding-left: 16pt;
+    margin: 2pt 0;
+}
+
+.block-text li {
+    margin-bottom: 1pt;
+}
+
+.block-text p {
+    margin-bottom: 3pt;
+}
+
+.skills-list {
+    margin: 0;
+    padding: 0;
+}
+
+.skills-list p {
+    margin-bottom: 2pt;
+}

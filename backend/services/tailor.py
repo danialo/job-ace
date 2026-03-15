@@ -99,12 +99,19 @@ class TailorService:
             raise ValueError("One or more resume blocks missing")
         payload: List[Dict] = []
         for block in blocks:
-            payload.append(
-                {
-                    "id": block.id,
-                    "category": block.category,
-                    "tags": (block.tags or "").split(",") if block.tags else [],
-                    "text": block.text,
-                }
-            )
+            entry: Dict = {
+                "id": block.id,
+                "category": block.category,
+                "tags": (block.tags or "").split(",") if block.tags else [],
+                "text": block.text,
+            }
+            if block.job_title:
+                entry["job_title"] = block.job_title
+            if block.company:
+                entry["company"] = block.company
+            if block.start_date:
+                entry["start_date"] = block.start_date
+            if block.end_date:
+                entry["end_date"] = block.end_date
+            payload.append(entry)
         return payload

@@ -579,6 +579,15 @@ footer {
     background: var(--border-color);
 }
 
+.form-select-inline {
+    padding: 0.5rem 0.75rem;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: #fff;
+    color: var(--text-color);
+}
+
 /* Preview Modal Specific Styles */
 .modal-large {
     max-width: 900px;
@@ -892,7 +901,7 @@ footer {
     border-color: #059669;
 }
 
-.btn-improve {
+.btn-polish {
     padding: 0.5rem 1rem;
     font-size: 0.875rem;
     font-weight: 500;
@@ -904,12 +913,12 @@ footer {
     transition: all 0.2s;
 }
 
-.btn-improve:hover {
+.btn-polish:hover {
     background: var(--primary-color);
     color: white;
 }
 
-.btn-improve:disabled {
+.btn-polish:disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }

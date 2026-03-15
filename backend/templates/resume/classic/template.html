@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    {% if contact %}
+    <div class="contact-header">
+        {% if contact.name %}<h1>{{ contact.name }}</h1>{% endif %}
+        <div class="contact-info">
+            {% if contact.email %}<span>{{ contact.email }}</span>{% endif %}
+            {% if contact.phone %}<span>{{ contact.phone }}</span>{% endif %}
+            {% if contact.location %}<span>{{ contact.location }}</span>{% endif %}
+            {% if contact.linkedin %}<span>{{ contact.linkedin }}</span>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% for section in sections %}
+    <div class="section">
+        <div class="section-heading">{{ section.heading }}</div>
+
+        {% for block in section.blocks %}
+        <div class="experience-entry">
+            {% if block.job_title or block.company or block.dates %}
+            <div class="experience-header">
+                <div>
+                    {% if block.job_title %}<span class="experience-title">{{ block.job_title }}</span>{% endif %}
+                    {% if block.company %}<span class="experience-company"> — {{ block.company }}</span>{% endif %}
+                </div>
+                {% if block.dates %}<div class="experience-dates">{{ block.dates }}</div>{% endif %}
+            </div>
+            {% endif %}
+
+            <div class="block-text">{{ block.html_content }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</body>
+</html>

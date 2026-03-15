@@ -16,6 +16,7 @@ from backend.models.schemas import (
     ConfirmResumeBlocksRequest,
     ConfirmResumeBlocksResponse,
     DeleteBlockResponse,
+    ExportRequest,
     ImproveBlockResponse,
     IntakeRequest,
     IntakeResponse,
@@ -26,10 +27,12 @@ from backend.models.schemas import (
     PrefillPlanResponse,
     TailorRequest,
     TailorResponse,
+    TemplateInfo,
     UpdateBlockRequest,
     UpdateBlockResponse,
 )
 from backend.services.artifacts import ArtifactManager
+from backend.services.export import ExportService
 from backend.services.intake import IntakeService
 from backend.services.prefill import PrefillPlanner
 from backend.services.resume_converter import ResumeConverter
@@ -422,58 +425,243 @@ def delete_block(block_id: int, db: Session = Depends(get_db)) -> DeleteBlockRes
     return DeleteBlockResponse(id=block_id)
 
 
-@app.post("/blocks/{block_id}/improve", response_model=ImproveBlockResponse)
-def improve_block(block_id: int, db: Session = Depends(get_db)) -> ImproveBlockResponse:
-    """Improve a resume block using LLM (job-agnostic improvement)."""
+@app.post("/blocks/{block_id}/polish", response_model=ImproveBlockResponse)
+def polish_block(
+    block_id: int,
+    db: Session = Depends(get_db),
+) -> ImproveBlockResponse:
+    """Polish a resume block — job-agnostic clarity and quality improvement."""
     block = db.get(models.ResumeBlock, block_id)
     if not block:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
 
-    # Get LLM client
     from backend.services.llm import get_llm_client, OpenAIClient
     from backend.config import get_settings
     settings = get_settings()
-    llm_client = get_llm_client(settings, task="resume_improvement")
+    llm_client = get_llm_client(settings, task="tailoring")
 
-    # Create improvement prompt
-    prompt = f"""Improve the following resume block. Make it more professional, impactful, and clear. Use strong action verbs and quantify achievements where possible. Keep the same general structure and content but enhance the writing quality.
+    prompt = f"""You are polishing a single WORK EXPERIENCE entry from a resume.
 
-Category: {block.category}
+Your job is to improve clarity, readability, grammar, and professional presentation while preserving all factual meaning.
 
-Original text:
-{block.text}
+GOAL:
+Rewrite this work experience entry so it is:
+- cleaner
+- tighter
+- easier to read
+- more consistent
+- more professional
 
-Provide ONLY the improved text, no explanations or additional commentary."""
+NON-NEGOTIABLE RULES:
+1. DO NOT invent facts.
+2. DO NOT add metrics, percentages, time savings, business impact, scale, or outcomes unless explicitly stated in the source text.
+3. DO NOT add tools, technologies, responsibilities, certifications, or achievements not present in the source text.
+4. DO NOT change job title, company name, or date range.
+5. DO NOT strengthen claims beyond what the source text supports.
+6. DO NOT remove important technical specificity.
+7. DO NOT rewrite the experience to sound more senior, strategic, or leadership-oriented unless the source explicitly supports that.
+8. Preserve the original meaning of every bullet.
+
+ALLOWED CHANGES:
+- Fix grammar, punctuation, and awkward phrasing
+- Tighten sentence structure
+- Improve bullet consistency and parallelism
+- Replace weak or repetitive wording with stronger accurate wording
+- Break overly long bullets for readability
+- Merge redundant bullets only if no meaning is lost
+- Improve formatting and readability of the section
+
+STYLE RULES:
+- Keep the original structure: header + bullet list
+- Keep approximately the same number of bullets unless combining duplicates improves clarity
+- Use concise, professional, credible language
+- Prefer clear and specific wording over generic corporate language
+- Avoid filler like "results-driven," "dynamic," "passionate," or "team player"
+- Avoid keyword stuffing
+- Avoid exaggerated language
+
+OUTPUT REQUIREMENTS:
+Return only the polished work experience entry.
+Preserve this format:
+- First line: Job Title, Company, Date Range
+- Then bullet points
+No commentary.
+No explanations.
+No notes.
+No markdown fences.
+
+SOURCE WORK EXPERIENCE ENTRY:
+{block.text}"""
 
     try:
-        # Check if it's OpenAI client and call the API directly
         if isinstance(llm_client, OpenAIClient):
             response = llm_client.client.chat.completions.create(
                 model=llm_client.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert resume writer. Improve resume content to be more professional, impactful, and clear. Use strong action verbs and quantify achievements where possible."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
+                messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=1000
+                max_tokens=2000,
             )
             improved_text = response.choices[0].message.content
         else:
-            # Stub client fallback
             improved_text = block.text
 
         return ImproveBlockResponse(
             improved_text=improved_text.strip(),
-            original_text=block.text
+            original_text=block.text,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to improve block: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to polish block: {str(e)}")
+
+
+@app.post("/blocks/{block_id}/align", response_model=ImproveBlockResponse)
+def align_block(
+    block_id: int,
+    job_id: int = Query(..., description="Job ID to align the block to"),
+    db: Session = Depends(get_db),
+) -> ImproveBlockResponse:
+    """Align a resume block to a specific job posting — targeted rewrite."""
+    block = db.get(models.ResumeBlock, block_id)
+    if not block:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
+
+    from backend.services.llm import get_llm_client, OpenAIClient
+    from backend.config import get_settings
+    settings = get_settings()
+    llm_client = get_llm_client(settings, task="tailoring")
+
+    # Load job posting
+    job_posting = db.get(models.JobPosting, job_id)
+    if not job_posting or not job_posting.jd_json_path:
+        raise HTTPException(status_code=400, detail="Job posting or JD not found")
+    try:
+        job_posting_text = Path(job_posting.jd_json_path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail="Job description file not found")
+
+    prompt = f"""You are rewriting a single WORK EXPERIENCE entry from a resume.
+
+Your job is to improve the writing quality while preserving factual accuracy.
+
+GOAL:
+Rewrite this work experience entry so it is:
+- clearer
+- tighter
+- more professional
+- stronger in phrasing
+- better aligned to the target job posting
+
+NON-NEGOTIABLE RULES:
+1. DO NOT invent facts.
+2. DO NOT add metrics, percentages, time savings, scale, business impact, or outcomes unless they are explicitly stated in the source text.
+3. DO NOT claim ownership or leadership beyond what the source text supports.
+4. DO NOT add tools, technologies, certifications, responsibilities, or achievements that are not explicitly present.
+5. DO NOT change dates, titles, company names, or employment scope.
+6. DO NOT remove important technical specificity unless replacing it with equally accurate wording.
+7. DO NOT turn implied value into stated measurable impact.
+8. If a stronger version would require missing evidence, keep the wording conservative.
+
+ALLOWED IMPROVEMENTS:
+- Improve grammar and readability
+- Tighten phrasing
+- Replace weak verbs with stronger accurate verbs
+- Reduce redundancy
+- Improve bullet parallelism and consistency
+- Reorder bullets for relevance to the target role
+- Lightly align terminology to the target job posting, but only when truthful
+- Split overly long bullets
+- Merge repetitive bullets only if no meaning is lost
+
+STYLE RULES:
+- Keep the original structure: header + bullet list
+- Keep approximately the same number of bullets unless combining duplicates improves clarity
+- Prefer concise, high-signal bullets
+- Use strong but honest action verbs
+- Keep tone credible and senior
+- Avoid generic corporate fluff
+- Avoid vague filler like "results-driven," "dynamic," "passionate," or "team player"
+- Avoid exaggerated claims
+- Preserve technical specificity where it adds value
+
+TARGET JOB POSTING USE:
+- Prioritize bullets most relevant to the job posting
+- Use the employer's terminology only when it accurately maps to the original experience
+- Do not force keyword stuffing
+- Do not rewrite the experience to fit the job if the source does not support it
+
+OUTPUT REQUIREMENTS:
+Return only the rewritten work experience entry.
+Preserve this format:
+- First line: Job Title, Company, Date Range
+- Then bullet points
+No commentary.
+No explanations.
+No notes.
+No markdown fences.
+
+SOURCE WORK EXPERIENCE ENTRY:
+{block.text}
+
+TARGET JOB POSTING:
+{job_posting_text}"""
+
+    try:
+        if isinstance(llm_client, OpenAIClient):
+            response = llm_client.client.chat.completions.create(
+                model=llm_client.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=2000,
+            )
+            improved_text = response.choices[0].message.content
+        else:
+            improved_text = block.text
+
+        return ImproveBlockResponse(
+            improved_text=improved_text.strip(),
+            original_text=block.text,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to align block: {str(e)}")
+
+
+@app.get("/templates", response_model=list[TemplateInfo])
+def list_templates(db: Session = Depends(get_db)) -> list[TemplateInfo]:
+    """List available resume templates."""
+    service = ExportService(db)
+    templates = service.list_templates()
+    return [TemplateInfo(**t) for t in templates]
+
+
+@app.post("/export")
+def export_resume(payload: ExportRequest, db: Session = Depends(get_db)) -> Response:
+    """Export a resume as PDF or DOCX."""
+    service = ExportService(db)
+    fmt = payload.format.lower()
+    if fmt not in ("pdf", "docx"):
+        raise HTTPException(status_code=400, detail="Format must be 'pdf' or 'docx'")
+
+    try:
+        if fmt == "pdf":
+            data = service.render_pdf(
+                payload.job_id, payload.block_ids, payload.template, payload.resume_version
+            )
+            media_type = "application/pdf"
+            ext = "pdf"
+        else:
+            data = service.render_docx(
+                payload.job_id, payload.block_ids, payload.template, payload.resume_version
+            )
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ext = "docx"
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    filename = f"resume_{payload.resume_version}.{ext}"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.delete("/blocks")

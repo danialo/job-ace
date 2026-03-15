@@ -160,3 +160,19 @@ class ConfirmResumeBlocksResponse(BaseModel):
     message: str
     blocks_saved: int
     block_ids: List[int]
+
+
+class ExportRequest(BaseModel):
+    """Request to export a resume as PDF or DOCX."""
+    job_id: int
+    block_ids: List[int]
+    template: str = "classic"
+    format: str = "pdf"  # "pdf" or "docx"
+    resume_version: str = "v1"
+
+
+class TemplateInfo(BaseModel):
+    """Information about an available resume template."""
+    id: str
+    name: str
+    description: str

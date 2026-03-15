@@ -169,9 +169,14 @@
                 <div class="resume-preview-container">
                     <pre id="resume-preview-text" class="resume-preview"></pre>
                 </div>
-                <div style="margin-top: 1rem;">
-                    <button class="btn btn-secondary" onclick="copyResumeToClipboard()">📋 Copy to Clipboard</button>
-                    <button class="btn btn-secondary" onclick="downloadResume()">💾 Download</button>
+                <div style="margin-top: 1rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" onclick="copyResumeToClipboard()">Copy to Clipboard</button>
+                    <select id="template-selector" class="form-select-inline">
+                        <option value="classic">Classic</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="downloadResumeAs('pdf')">Download PDF</button>
+                    <button class="btn btn-secondary" onclick="downloadResumeAs('docx')">Download DOCX</button>
+                    <button class="btn btn-secondary" onclick="downloadResume()">Download TXT</button>
                 </div>
             </div>
         </div>
