@@ -23,6 +23,7 @@
 - [ ] P3: Certifications merged on single lines — upstream PDF extraction concatenates distinct certs (e.g., "Comptia Network+ Comptia A+")
 - [ ] P3: Trailing spaces before periods — PDF extraction artifacts ("precisely .", "Networker .") not caught by cleanup
 - [ ] P3: Contact header uses `~` separator instead of `|` — less polished than original resume
+- [ ] P3: Education blocks don't extract structured start_date/end_date during resume intake — dates stay baked into text instead of structured header
 
 ## In Progress
 - [ ] Resume object model and normalized export pipeline (`feat/resume-object-model` branch)
