@@ -285,9 +285,9 @@ Resume text (total length: {len(text)} characters):
 
 Return the sections in the order they appear in the resume."""
 
-        # Use structured outputs with GPT-4o-mini for speed and cost efficiency
+        # Use structured outputs for section detection
         completion = self.client.beta.chat.completions.parse(
-            model="gpt-4o-mini",
+            model=self.model,
             messages=[
                 {"role": "system", "content": "You are an expert at analyzing resume structure and identifying sections."},
                 {"role": "user", "content": prompt}
@@ -354,9 +354,9 @@ For each block, provide:
 - tags: Extract relevant keywords (companies, technologies, skills) for filtering purposes
 - content: THE EXACT VERBATIM TEXT FROM THE RESUME for this block (no modifications)"""
 
-        # Use structured outputs with GPT-4o for quality
+        # Use structured outputs for section parsing
         completion = self.client.beta.chat.completions.parse(
-            model="gpt-4o",
+            model=self.model,
             messages=[
                 {"role": "system", "content": "You are an expert at identifying section boundaries in resumes and extracting verbatim text. You NEVER rewrite, summarize, or modify the original text. You only split text into blocks and copy it exactly as written."},
                 {"role": "user", "content": prompt}
