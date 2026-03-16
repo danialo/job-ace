@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import tempfile
@@ -39,7 +40,15 @@ from backend.services.resume_converter import ResumeConverter
 from backend.services.submission import SubmissionLogger
 from backend.services.tailor import TailorService
 
-app = FastAPI(title="Job Ace API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown events for the FastAPI app."""
+    init_db()
+    yield
+
+
+app = FastAPI(title="Job Ace API", version="0.1.0", lifespan=lifespan)
 
 # Add CORS middleware
 app.add_middleware(
@@ -49,11 +58,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
 
 
 @app.post("/intake", response_model=IntakeResponse, status_code=status.HTTP_201_CREATED)

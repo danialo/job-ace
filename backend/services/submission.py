@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ class SubmissionLogger:
 
         application = job_posting.application
         application.status = "submitted"
-        application.applied_at = datetime.utcnow()
+        application.applied_at = datetime.now(timezone.utc)
         application.confirmation_id = confirmation_id
         application.confirmation_text = confirmation_text
 

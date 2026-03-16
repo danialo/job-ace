@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -137,10 +137,10 @@ def capture_form(url: str, artifact_dir: Path, headless: bool = True) -> Capture
                 "job_id": None,
                 "source_url": url,
                 "portal_family": None,
-                "capture_run_id": datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                "capture_run_id": datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
             },
             "capture": {
-                "captured_at": datetime.utcnow().isoformat() + "Z",
+                "captured_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "browser": {"engine": "chromium", "headless": headless},
                 "stages": [stage],
             },

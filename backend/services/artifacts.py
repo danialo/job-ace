@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -19,7 +19,7 @@ class ArtifactManager:
         self.db = db
 
     def ensure_job_dir(self, job_posting: models.JobPosting) -> Path:
-        created = job_posting.created_at or datetime.utcnow()
+        created = job_posting.created_at or datetime.now(timezone.utc)
         company = slugify(job_posting.company.name if job_posting.company else "unknown")
         title = slugify(job_posting.title or "role")
         location = slugify(job_posting.location or "remote")

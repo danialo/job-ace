@@ -13,6 +13,7 @@
 - [x] Side-by-side resume comparison and AI improvement features
 - [x] PDF layout-mode extraction fix
 - [x] Security hardening (localhost binding, XSS escaping)
+- [x] Fix deprecation warnings (datetime.utcnow, FastAPI on_event)
 
 ## Bugs
 - [ ] Double Quill toolbar rendering on resume block editor (Resume Intake tab) — two toolbars appear per block
@@ -37,4 +38,3 @@
 - [ ] Multi-step form workflows
 - [ ] Portal-specific selector catalogs
 - [ ] Scoring and ranking engine
-- [ ] Fix pre-existing test failures (test_analysis_service, test_prefill_planner)

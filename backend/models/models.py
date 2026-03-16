@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
@@ -17,7 +17,7 @@ class Company(Base):
     site: Mapped[Optional[str]] = mapped_column(String)
     values_json: Mapped[Optional[str]] = mapped_column(Text)
     tech_stack: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     job_postings: Mapped[list["JobPosting"]] = relationship("JobPosting", back_populates="company")
 
@@ -45,7 +45,7 @@ class JobPosting(Base):
     captured_html_path: Mapped[Optional[str]] = mapped_column(Text)
     captured_pdf_path: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, default="intake", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     company: Mapped[Company] = relationship("Company", back_populates="job_postings")
     application: Mapped[Optional["Application"]] = relationship(
@@ -68,7 +68,7 @@ class Application(Base):
     cover_artifact_path: Mapped[Optional[str]] = mapped_column(Text)
     compliance_report_path: Mapped[Optional[str]] = mapped_column(Text)
     followup_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     job_posting: Mapped[JobPosting] = relationship("JobPosting", back_populates="application")
     artifacts: Mapped[list["Artifact"]] = relationship("Artifact", back_populates="application")
@@ -87,7 +87,7 @@ class Artifact(Base):
     path: Mapped[str] = mapped_column(Text, nullable=False)
     sha256: Mapped[str] = mapped_column(String, nullable=False)
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     job_posting: Mapped[JobPosting] = relationship("JobPosting", back_populates="artifacts")
     application: Mapped[Optional[Application]] = relationship("Application", back_populates="artifacts")
