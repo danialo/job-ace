@@ -14,6 +14,9 @@ Job Ace is an intelligent job application automation system that helps you captu
 - **Prefill Planning**: Generate automated form-filling plans
 - **Application Tracking**: Log and track your job applications
 - **Multi-Provider LLM**: OpenAI (GPT-4.1, GPT-4o-mini), Anthropic (Claude), or offline stub
+- **PDF & DOCX Export**: Generate professional resumes from structured blocks with WeasyPrint and python-docx
+- **Resume Object Model**: Canonical Pydantic model with semantic normalization (bullet joining, skills parsing, date structuring)
+- **Compliance Checking**: LLM-powered fabrication detection to verify tailored resumes don't hallucinate
 - **Modern Web UI**: 5-tab interface with Quill.js rich text editing
 - **Local-First**: All data stored locally in SQLite with filesystem artifacts
 
@@ -22,7 +25,23 @@ Job Ace is an intelligent job application automation system that helps you captu
 ### 1. Installation
 
 ```bash
+# One-line setup (installs system deps, Python venv, packages, Playwright)
+./setup.sh
+```
+
+Or manually:
+
+```bash
 cd job-ace
+
+# Install system dependencies (Ubuntu/Debian — needed for WeasyPrint PDF export)
+sudo apt-get install -y libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libgdk-pixbuf2.0-0 libffi-dev
+
+# On macOS:
+# brew install pango cairo libffi gdk-pixbuf
+
+# On Fedora/RHEL:
+# sudo dnf install pango cairo gdk-pixbuf2 libffi-devel
 
 # Create and activate virtual environment
 python3 -m venv .venv
@@ -36,6 +55,9 @@ pip install -e ".[dev]"
 
 # Install Playwright browsers
 playwright install chromium
+
+# Initialize database
+job-ace init
 ```
 
 ### 2. Start the Web Interface
@@ -47,6 +69,7 @@ playwright install chromium
 Or manually:
 
 ```bash
+source .venv/bin/activate
 python -m backend.main
 ```
 
@@ -144,10 +167,13 @@ Once the server is running, visit:
 | `POST` | `/upload-resume` | Upload and auto-save resume |
 | `POST` | `/prefill-plan` | Generate form prefill plan |
 | `POST` | `/log-submit` | Log application submission |
-| `POST` | `/blocks/{id}/improve` | Improve block via LLM |
+| `POST` | `/blocks/{id}/polish` | Polish block (job-agnostic) |
+| `POST` | `/blocks/{id}/align` | Align block to job posting |
+| `POST` | `/export` | Export resume as PDF or DOCX |
 | `GET` | `/jobs` | List all jobs |
 | `GET` | `/blocks` | List all resume blocks |
 | `GET` | `/applications` | List all applications |
+| `GET` | `/templates` | List available resume templates |
 | `GET` | `/artifact/{job_id}` | Retrieve artifact path |
 | `PUT` | `/blocks/{id}` | Update a resume block |
 | `DELETE` | `/blocks/{id}` | Delete a resume block |
@@ -163,8 +189,10 @@ FastAPI Backend (localhost:3000)
 Services Layer
     ├── IntakeService     → Capture job postings (httpx + Playwright)
     ├── TailorService     → Generate tailored resumes
+    ├── ExportService     → PDF/DOCX export via ResumeDocument model
+    ├── ResumeNormalizer  → Canonical resume normalization
     ├── ResumeConverter   → Multi-stage resume parsing
-    ├── AnalysisService   → Job page analysis
+    ├── ComplianceChecker → LLM-powered fabrication detection
     ├── PrefillPlanner    → Build automation plans
     └── SubmissionLogger  → Track applications
     |
@@ -178,7 +206,7 @@ Data Layer
 ## Testing
 
 ```bash
-# Run backend tests (84 tests)
+# Run all tests
 pytest
 
 # Run with coverage
@@ -191,7 +219,7 @@ pytest tests/e2e/ -m e2e
 pytest -m "" tests/
 ```
 
-**101 tests total** covering services, API endpoints, models, schemas, LLM factory, and E2E browser tests.
+**116 tests total** covering services, API endpoints, models, schemas, LLM factory, resume normalization, export, and E2E browser tests.
 
 ## Project Structure
 
@@ -201,8 +229,9 @@ job-ace/
 │   ├── api/             # FastAPI endpoints
 │   ├── browser/         # Playwright automation
 │   ├── db/              # Database session management
-│   ├── models/          # SQLAlchemy models & Pydantic schemas
-│   └── services/        # Business logic (intake, tailor, LLM, etc.)
+│   ├── models/          # SQLAlchemy models, Pydantic schemas, ResumeDocument
+│   ├── services/        # Business logic (intake, tailor, export, normalizer, LLM)
+│   └── templates/       # Resume export templates (HTML+CSS)
 ├── cli/                 # Typer CLI
 ├── frontend/
 │   ├── static/
@@ -224,6 +253,8 @@ job-ace/
 - **LLM**: OpenAI (GPT-4.1, GPT-4o-mini), Anthropic (Claude), structured outputs
 - **CLI**: Typer
 - **Automation**: Playwright
+- **PDF Export**: WeasyPrint (requires system libs: pango, cairo)
+- **DOCX Export**: python-docx
 - **Database**: SQLite
 - **Frontend**: Vanilla JavaScript, Quill.js, HTML5, CSS3
 - **Testing**: pytest, pytest-playwright, FastAPI TestClient
