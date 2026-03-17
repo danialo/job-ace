@@ -1,6 +1,7 @@
 # TODO
 
 ## Completed
+- [x] Thin extraction detection for bot challenge pages (dc10114)
 - [x] Initialize git repository
 - [x] Scaffold FastAPI backend, services, and CLI for week-one MVP
 - [x] Add Playwright prefill stub and seed tests
@@ -26,7 +27,7 @@
 - [ ] P3: Contact header uses `~` separator instead of `|` — less polished than original resume
 - [ ] P3: Education blocks don't extract structured start_date/end_date during resume intake — dates stay baked into text instead of structured header
 - [ ] P2: Polish prompt hallucinating header line — LLM adds "Server, Restaurant Name, Date Range" placeholder when block lacks structured metadata, instead of omitting it
-- [ ] P1: Intake reports success on bot challenge pages — Cloudflare/CAPTCHA interstitial captured as job posting with title=None, empty must_haves, no warning to user. Should detect thin extraction (no title, no requirements) and fail or warn instead of "Captured Successfully!"
+
 
 ## In Progress
 - [ ] Resume object model and normalized export pipeline (`feat/resume-object-model` branch)
