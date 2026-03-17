@@ -14,6 +14,7 @@ from backend.models.resume_document import (
     ResumeDocument,
     SectionCategory,
     SkillsContent,
+    SkillsGroup,
 )
 from backend.services.resume_normalizer import ResumeNormalizer
 
@@ -392,3 +393,97 @@ class TestDocumentSerialization:
         assert restored.basics.name == "Jane Doe"
         assert len(restored.sections) == len(doc.sections)
         assert restored.sections[0].category == doc.sections[0].category
+
+
+# ---------------------------------------------------------------------------
+# Skills group labels preserved (P2 bug fix)
+# ---------------------------------------------------------------------------
+
+class TestSkillsGroupLabels:
+    """Ensure skills group labels like KEY SKILLS are preserved, not stripped."""
+
+    def test_key_skills_label_preserved(self, db):
+        """KEY SKILLS should be a group label, not stripped as section heading."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="KEY SKILLS\n| Python | Go | Rust | TypeScript |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        section = doc.sections[0]
+        assert section.category == SectionCategory.skills
+
+        entry = section.entries[0]
+        assert isinstance(entry.content, SkillsContent)
+
+        # Should have the group with label "Key Skills" (title-cased)
+        groups = entry.content.groups
+        assert len(groups) >= 1
+        assert groups[0].label == "Key Skills"
+        assert "Python" in groups[0].items
+
+    def test_technical_proficiencies_label_preserved(self, db):
+        """TECHNICAL PROFICIENCIES should be a group label, not stripped."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="TECHNICAL PROFICIENCIES\nPython, Go, Rust, TypeScript",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        entry = doc.sections[0].entries[0]
+        assert isinstance(entry.content, SkillsContent)
+
+        groups = entry.content.groups
+        assert len(groups) >= 1
+        assert groups[0].label == "Technical Proficiencies"
+
+    def test_multiple_skill_groups_preserved(self, db):
+        """Multiple group labels should all be preserved."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text=(
+                "KEY SKILLS\n"
+                "| Python | Go | Rust |\n"
+                "TECHNICAL PROFICIENCIES\n"
+                "| Docker | Kubernetes | AWS |"
+            ),
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        entry = doc.sections[0].entries[0]
+        groups = entry.content.groups
+        assert len(groups) == 2
+        assert groups[0].label == "Key Skills"
+        assert groups[1].label == "Technical Proficiencies"
+
+    def test_generic_skills_heading_still_stripped(self, db):
+        """Generic 'Skills' heading should still be stripped (not a group label)."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="Skills\n| Python | Go | Rust |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        entry = doc.sections[0].entries[0]
+        groups = entry.content.groups
+
+        # The generic "Skills" should be stripped, so first group has no label
+        # (or there's no group label matching "Skills")
+        if groups:
+            assert groups[0].label != "Skills"

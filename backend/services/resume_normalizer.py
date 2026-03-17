@@ -399,11 +399,17 @@ class ResumeNormalizer:
     # -------------------------------------------------------------------
 
     def _strip_section_heading(self, text: str, cat: SectionCategory) -> str:
-        """Remove leading line if it's just the section heading baked into content."""
+        """Remove leading line if it's just the section heading baked into content.
+
+        For skills sections, only strip generic headings like "Skills" — NOT
+        group labels like "Key Skills" or "Technical Proficiencies" which
+        are structural content that _parse_skills uses for grouping.
+        """
         # Known heading variants per category
+        # For skills: only strip the generic "skills" heading, not group labels
         heading_variants = {
             SectionCategory.summary: {"summary", "professional summary", "career summary", "profile", "objective"},
-            SectionCategory.skills: {"skills", "key skills", "technical skills", "technical proficiencies"},
+            SectionCategory.skills: {"skills"},  # NOT key skills, technical skills — those are group labels
             SectionCategory.experience: {"experience", "work experience", "employment history", "work"},
             SectionCategory.education: {"education", "academic background"},
             SectionCategory.certifications: {"certifications", "certificates", "licenses and certifications"},
