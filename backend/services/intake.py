@@ -11,10 +11,18 @@ from sqlalchemy.orm import Session
 
 from backend.models import models
 from backend.services.artifacts import ArtifactManager
-from backend.services.llm import BaseLLMClient, get_llm_client
+from backend.services.llm import BaseLLMClient, JDExtraction, get_llm_client
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class ThinExtractionError(Exception):
+    """Raised when job extraction yields insufficient data (likely bot challenge page)."""
+
+    def __init__(self, message: str, extraction: "JDExtraction" = None):
+        super().__init__(message)
+        self.extraction = extraction
 
 
 class IntakeService:
@@ -35,6 +43,7 @@ class IntakeService:
         text = soup.get_text("\n", strip=True)
 
         extraction = self.llm.extract_job_json(text)
+        self._validate_extraction(extraction, url, text)
         company_name = extraction.company or self._guess_company_from_url(url)
         company = self._get_or_create_company(company_name)
 
@@ -80,6 +89,77 @@ class IntakeService:
         self.db.flush()
 
         return job_posting
+
+    def _validate_extraction(self, extraction: JDExtraction, url: str, text: str) -> None:
+        """Validate that extraction contains meaningful job data.
+
+        Raises ThinExtractionError if the extraction appears to be from a bot
+        challenge page (Cloudflare, CAPTCHA, login wall, etc.) rather than
+        an actual job posting.
+        """
+        # Check for bot challenge indicators in page text
+        bot_indicators = [
+            "just a moment",
+            "checking your browser",
+            "verify you are human",
+            "please complete the security check",
+            "access denied",
+            "enable javascript",
+            "ray id",  # Cloudflare
+            "captcha",
+            "robot",
+            "automated access",
+            "please wait while we verify",
+        ]
+        text_lower = text.lower()
+        for indicator in bot_indicators:
+            if indicator in text_lower and len(text) < 2000:
+                logger.warning(
+                    "Bot challenge page detected",
+                    extra={"url": url, "indicator": indicator},
+                )
+                raise ThinExtractionError(
+                    f"Page appears to be a bot challenge (detected: '{indicator}'). "
+                    "The site may be blocking automated access. Try opening the URL "
+                    "in a browser and copying the job description manually.",
+                    extraction=extraction,
+                )
+
+        # Check extraction quality
+        has_title = bool(extraction.title and extraction.title.strip())
+        has_requirements = bool(extraction.must_haves) or bool(extraction.nice_to_haves)
+        has_company = bool(extraction.company and extraction.company.strip())
+
+        # Minimum viable extraction: need at least title OR (company + some requirements)
+        if not has_title and not has_requirements:
+            logger.warning(
+                "Thin extraction detected",
+                extra={
+                    "url": url,
+                    "has_title": has_title,
+                    "has_requirements": has_requirements,
+                    "has_company": has_company,
+                    "text_length": len(text),
+                },
+            )
+            raise ThinExtractionError(
+                "Could not extract meaningful job data from this page. "
+                "The page may be a login wall, CAPTCHA, or the job posting "
+                "may no longer be available. Please verify the URL and try again.",
+                extraction=extraction,
+            )
+
+        # Warn (but don't fail) if extraction is sparse
+        if not has_title or not has_requirements:
+            logger.warning(
+                "Sparse extraction - proceeding with limited data",
+                extra={
+                    "url": url,
+                    "has_title": has_title,
+                    "has_requirements": has_requirements,
+                    "must_haves_count": len(extraction.must_haves),
+                },
+            )
 
     def _fetch_html(self, url: str) -> str:
         logger.info("Fetching job posting", extra={"url": url, "method": "httpx"})

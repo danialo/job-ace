@@ -12,7 +12,7 @@ from backend.models import models
 from backend.services.prefill import PrefillPlanner
 from backend.services.capture import CaptureService
 from backend.services.tailor import TailorService
-from backend.services.intake import IntakeService
+from backend.services.intake import IntakeService, ThinExtractionError
 from backend.services.submission import SubmissionLogger
 from backend.services.artifacts import ArtifactManager
 from backend.browser.prefill import run_prefill
@@ -98,7 +98,11 @@ def intake(url: str, force: bool = typer.Option(False, help="Re-run intake even 
     """Run intake for a job posting."""
     with get_session() as session:
         service = IntakeService(session)
-        job_posting = service.run(url, force)
+        try:
+            job_posting = service.run(url, force)
+        except ThinExtractionError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1)
         artifact_dir = ArtifactManager(session).ensure_job_dir(job_posting)
         typer.echo(json.dumps({"job_id": job_posting.id, "artifact_dir": str(artifact_dir)}, indent=2))
 

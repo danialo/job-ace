@@ -34,7 +34,7 @@ from backend.models.schemas import (
 )
 from backend.services.artifacts import ArtifactManager
 from backend.services.export import ExportService
-from backend.services.intake import IntakeService
+from backend.services.intake import IntakeService, ThinExtractionError
 from backend.services.prefill import PrefillPlanner
 from backend.services.resume_converter import ResumeConverter
 from backend.services.submission import SubmissionLogger
@@ -63,7 +63,13 @@ app.add_middleware(
 @app.post("/intake", response_model=IntakeResponse, status_code=status.HTTP_201_CREATED)
 def intake(payload: IntakeRequest, db: Session = Depends(get_db)) -> IntakeResponse:
     service = IntakeService(db)
-    job_posting = service.run(payload.url, payload.force)
+    try:
+        job_posting = service.run(payload.url, payload.force)
+    except ThinExtractionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     artifact_dir = ArtifactManager(db).ensure_job_dir(job_posting)
     return IntakeResponse(job_id=job_posting.id, artifact_dir=artifact_dir)
 
