@@ -46,6 +46,22 @@ _BULLET_RE = re.compile(r"^[-•●*►▪▸]\s*(.+)$")
 # Pipe-delimited skills: | Python | Bash | JSON |
 _PIPE_SKILLS_RE = re.compile(r"^\|?\s*([^|]+(?:\|[^|]+)+)\s*\|?\s*$")
 
+# Common certification prefixes that indicate a new certification item
+# Used to split merged certifications like "CompTIA Network+ CompTIA A+"
+# Only use vendor/org prefixes that typically START a certification name
+_CERT_PREFIXES = (
+    "CompTIA",
+    "AWS ",  # Space required to avoid false splits
+    "Cisco ",
+    "Microsoft ",
+    "Oracle ",
+    "VMware ",
+    "Google ",
+    "Red Hat ",
+    "Salesforce ",
+    "ServiceNow ",
+)
+
 # Month names for date parsing
 _MONTH_MAP = {
     name.lower(): i
@@ -334,18 +350,49 @@ class ResumeNormalizer:
         return SkillsContent(groups=groups)
 
     def _parse_items(self, text: str) -> ItemsContent:
-        """Parse text as a simple list of items."""
+        """Parse text as a simple list of items.
+
+        Handles PDF extraction artifacts where multiple certifications
+        get merged on a single line (e.g., "CompTIA Network+ CompTIA A+").
+        """
         items = []
         for line in text.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
             bullet_match = _BULLET_RE.match(stripped)
-            if bullet_match:
-                items.append(bullet_match.group(1).strip())
-            else:
-                items.append(stripped)
+            content = bullet_match.group(1).strip() if bullet_match else stripped
+            # Split merged certifications
+            split_items = self._split_merged_certs(content)
+            items.extend(split_items)
         return ItemsContent(items=items)
+
+    def _split_merged_certs(self, text: str) -> List[str]:
+        """Split merged certification items based on known cert prefixes.
+
+        E.g., "CompTIA Network+ CompTIA A+" → ["CompTIA Network+", "CompTIA A+"]
+
+        Uses conservative prefixes that typically START certification names.
+        Requires trailing space in prefix to avoid over-splitting.
+        """
+        # Build regex pattern to split before cert prefixes (but not at start)
+        # Pattern: one or more spaces followed by a cert prefix
+        # Note: prefixes include trailing space where needed for specificity
+        prefix_patterns = [re.escape(p.rstrip()) for p in _CERT_PREFIXES]
+        pattern = r"\s+(?=" + "|".join(prefix_patterns) + r"(?:\s|$))"
+
+        parts = re.split(pattern, text, flags=re.IGNORECASE)
+        result = [p.strip() for p in parts if p.strip()]
+
+        if len(result) > 1:
+            self._events.append(NormalizationEvent(
+                rule_id="split_merged_certs",
+                description=f"Split {len(result)} merged certifications",
+                before=text,
+                after=" | ".join(result),
+            ))
+
+        return result if result else [text]
 
     def _parse_bullets_or_prose(self, text: str) -> BulletsContent | ProseContent:
         """Decide if text is bullets or prose based on content."""

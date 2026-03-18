@@ -320,6 +320,60 @@ class TestItems:
         assert len(content.items) == 3
         assert "CompTIA A+" in content.items
 
+    def test_merged_certs_split(self, db):
+        """P3 bug: PDF extraction merges distinct certs on single line."""
+        block_id = _add_block(
+            db,
+            category="certifications",
+            text="CompTIA Network+ CompTIA A+",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, ItemsContent)
+        assert len(content.items) == 2
+        assert "CompTIA Network+" in content.items
+        assert "CompTIA A+" in content.items
+
+    def test_merged_certs_multiple_vendors(self, db):
+        """Split certs from different vendors merged on one line."""
+        block_id = _add_block(
+            db,
+            category="certifications",
+            text="AWS Solutions Architect Microsoft Azure Administrator Cisco CCNA",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, ItemsContent)
+        assert len(content.items) == 3
+        assert "AWS Solutions Architect" in content.items
+        assert "Microsoft Azure Administrator" in content.items
+        assert "Cisco CCNA" in content.items
+
+    def test_single_cert_not_split(self, db):
+        """Don't over-split single certifications."""
+        block_id = _add_block(
+            db,
+            category="certifications",
+            text="CompTIA Security+",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, ItemsContent)
+        assert len(content.items) == 1
+        assert content.items[0] == "CompTIA Security+"
+
 
 # ---------------------------------------------------------------------------
 # Artifact cleanup
