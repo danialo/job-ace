@@ -359,6 +359,44 @@ class TestArtifactCleanup:
         bullet_text = doc.sections[0].entries[0].content.bullets[0]
         assert "customer-ready" in bullet_text
 
+    def test_space_before_period_fixed(self, db):
+        """P3 bug: trailing spaces before periods from PDF extraction."""
+        block_id = _add_block(
+            db,
+            category="experience",
+            text="● Analyzed issues precisely .\n● Implemented Networker .",
+            job_title="Dev",
+            company="X",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        bullets = doc.sections[0].entries[0].content.bullets
+        assert "precisely." in bullets[0]
+        assert "precisely ." not in bullets[0]
+        assert "Networker." in bullets[1]
+        assert "Networker ." not in bullets[1]
+
+    def test_space_before_comma_fixed(self, db):
+        """PDF artifacts: trailing spaces before commas."""
+        block_id = _add_block(
+            db,
+            category="experience",
+            text="● Managed Python , Go , and Rust projects",
+            job_title="Dev",
+            company="X",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        bullet_text = doc.sections[0].entries[0].content.bullets[0]
+        assert "Python, Go, and Rust" in bullet_text
+        assert "Python ," not in bullet_text
+
 
 # ---------------------------------------------------------------------------
 # Section ordering

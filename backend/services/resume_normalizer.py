@@ -99,6 +99,10 @@ _ARTIFACT_PATTERNS = [
     (re.compile(r"(\w) -(\w)"), r"\1-\2", "space_before_hyphen"),
     # Split word with space: "Pr esent" → "Present" (conservative: only known cases)
     (re.compile(r"\bPr esent\b"), "Present", "split_word_present"),
+    # Trailing space before period: "precisely ." → "precisely."
+    (re.compile(r"(\w) +\."), r"\1.", "space_before_period"),
+    # Trailing space before comma: "word ," → "word,"
+    (re.compile(r"(\w) +,"), r"\1,", "space_before_comma"),
 ]
 
 
