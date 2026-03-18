@@ -937,6 +937,10 @@ CRITICAL - Header handling:
 - If a block lacks structured metadata, use the text as-is WITHOUT adding placeholder headers like "Position, Company, Date Range"
 - NEVER fabricate header lines for blocks that don't have them
 
+Formatting conventions:
+- Use pipe `|` as separator in contact lines (email | phone | location), NOT tilde `~`
+- Use standard Markdown formatting for the resume body
+
 Respond with ONLY the JSON object, no markdown or explanation."""
 
     def __init__(
