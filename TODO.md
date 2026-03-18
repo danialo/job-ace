@@ -26,7 +26,7 @@
 - [ ] P3: Trailing spaces before periods — PDF extraction artifacts ("precisely .", "Networker .") not caught by cleanup
 - [ ] P3: Contact header uses `~` separator instead of `|` — less polished than original resume
 - [ ] P3: Education blocks don't extract structured start_date/end_date during resume intake — dates stay baked into text instead of structured header
-- [ ] P2: Polish prompt hallucinating header line — LLM adds "Server, Restaurant Name, Date Range" placeholder when block lacks structured metadata, instead of omitting it
+- [x] P2: Polish prompt hallucinating header line — LLM adds "Server, Restaurant Name, Date Range" placeholder when block lacks structured metadata, instead of omitting it (5537041)
 
 
 ## In Progress
