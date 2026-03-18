@@ -25,7 +25,7 @@
 - [x] P3: Certifications merged on single lines — upstream PDF extraction concatenates distinct certs (e.g., "Comptia Network+ Comptia A+") (de7eee6)
 - [x] P3: Trailing spaces before periods — PDF extraction artifacts ("precisely .", "Networker .") not caught by cleanup (8787a7a)
 - [x] P3: Contact header uses `~` separator instead of `|` — less polished than original resume (2f1b2d6)
-- [ ] P3: Education blocks don't extract structured start_date/end_date during resume intake — dates stay baked into text instead of structured header
+- [x] P3: Education blocks don't extract structured start_date/end_date during resume intake — dates stay baked into text instead of structured header (ffd2f48)
 - [x] P2: Polish prompt hallucinating header line — LLM adds "Server, Restaurant Name, Date Range" placeholder when block lacks structured metadata, instead of omitting it (5537041)
 
 
