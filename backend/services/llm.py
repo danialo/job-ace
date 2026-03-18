@@ -932,6 +932,11 @@ Focus on:
 - Highlighting the most relevant experience first
 - Maintaining truthfulness - do not fabricate experience
 
+CRITICAL - Header handling:
+- Only include headers (job title, company, dates) if the block provides structured metadata (job_title, company, start_date, end_date fields)
+- If a block lacks structured metadata, use the text as-is WITHOUT adding placeholder headers like "Position, Company, Date Range"
+- NEVER fabricate header lines for blocks that don't have them
+
 Respond with ONLY the JSON object, no markdown or explanation."""
 
     def __init__(
