@@ -275,8 +275,11 @@ class ResumeNormalizer:
         current_label: str | None = None
         current_items: List[str] = []
 
-        for line in text.splitlines():
-            stripped = line.strip()
+        # Pre-process: join pipe-delimited continuation lines
+        # Handles cases like "| Python | Agentic\nWorkflows |" → "| Python | Agentic Workflows |"
+        lines = self._join_pipe_continuations(text.splitlines())
+
+        for stripped in lines:
             if not stripped:
                 continue
 
@@ -397,6 +400,75 @@ class ResumeNormalizer:
     # -------------------------------------------------------------------
     # Helpers
     # -------------------------------------------------------------------
+
+    def _join_pipe_continuations(self, lines: List[str]) -> List[str]:
+        """Join pipe-delimited skills lines that were split by PDF line breaks.
+
+        Handles cases like:
+            "| Python | Agentic"
+            "Workflows |"
+        becoming:
+            "| Python | Agentic Workflows |"
+
+        A line is a continuation if:
+        - Previous line ends without a closing | (mid-item break)
+        - This line doesn't start with | and contains | (end fragment)
+        """
+        if not lines:
+            return []
+
+        result: List[str] = []
+        pending: str | None = None
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                if pending:
+                    result.append(pending)
+                    pending = None
+                result.append("")
+                continue
+
+            if pending is not None:
+                # Check if this line is a continuation of a pipe-delimited sequence
+                # Continuation if: pending ends mid-item (not |) AND this line has |
+                pending_ends_mid_item = not pending.rstrip().endswith("|")
+                this_is_fragment = "|" in stripped and not stripped.startswith("|")
+
+                if pending_ends_mid_item and this_is_fragment:
+                    # Join: append space and continuation
+                    pending = pending + " " + stripped
+                    self._events.append(NormalizationEvent(
+                        rule_id="pipe_continuation_join",
+                        description="Joined pipe-delimited skill line continuation",
+                        before=f"...\\n{stripped}",
+                        after=pending[-60:] if len(pending) > 60 else pending,
+                    ))
+                    # Check if we're now complete (ends with |)
+                    if pending.rstrip().endswith("|"):
+                        result.append(pending)
+                        pending = None
+                    continue
+                else:
+                    # Not a continuation, emit pending and process this line
+                    result.append(pending)
+                    pending = None
+
+            # Check if this starts a pipe-delimited sequence
+            if "|" in stripped:
+                if stripped.rstrip().endswith("|"):
+                    # Complete line
+                    result.append(stripped)
+                else:
+                    # Potentially incomplete — hold for continuation
+                    pending = stripped
+            else:
+                result.append(stripped)
+
+        if pending:
+            result.append(pending)
+
+        return result
 
     def _strip_section_heading(self, text: str, cat: SectionCategory) -> str:
         """Remove leading line if it's just the section heading baked into content.

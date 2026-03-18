@@ -148,6 +148,47 @@ class TestSkillsParsing:
         assert "Python" in items
         assert "AWS" in items
 
+    def test_pipe_continuation_line_joined(self, db):
+        """P2 bug: 'Agentic Workflows' orphaned when pipe-delimited line breaks across PDF lines."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="| Python | Bash | Agentic\nWorkflows |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, SkillsContent)
+        items = content.groups[0].items
+        assert "Python" in items
+        assert "Bash" in items
+        assert "Agentic Workflows" in items
+        # Ensure "Agentic" and "Workflows" aren't separate items
+        assert "Agentic" not in items
+        assert "Workflows" not in items
+
+    def test_pipe_continuation_multiple_breaks(self, db):
+        """Handle pipe-delimited line split across multiple lines."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="| Infrastructure as\nCode | Container\nOrchestration | CI/CD |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, SkillsContent)
+        items = content.groups[0].items
+        assert "Infrastructure as Code" in items
+        assert "Container Orchestration" in items
+        assert "CI/CD" in items
+
 
 # ---------------------------------------------------------------------------
 # Summary as prose
