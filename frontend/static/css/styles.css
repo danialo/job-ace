@@ -1180,3 +1180,313 @@ footer {
     background: var(--primary-hover);
     border-color: var(--primary-hover);
 }
+
+
+/* ============================================================================
+   Job Inspection View
+   ============================================================================ */
+
+.job-card {
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    margin-bottom: 0.75rem;
+    background: var(--card-bg);
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+}
+
+.job-card:hover {
+    box-shadow: var(--shadow);
+}
+
+.job-card.expanded {
+    box-shadow: var(--shadow-lg);
+}
+
+.job-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.job-card-header:hover {
+    background: var(--bg-color);
+}
+
+.job-card-summary {
+    flex: 1;
+}
+
+.job-card-summary h4 {
+    margin: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.job-card-summary .job-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+.job-card-summary .job-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.job-card-expand {
+    padding: 0.25rem;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+.job-card.expanded .job-card-expand {
+    transform: rotate(180deg);
+}
+
+.job-card-detail {
+    display: none;
+    border-top: 1px solid var(--border-color);
+    padding: 1rem;
+    background: var(--bg-color);
+}
+
+.job-card.expanded .job-card-detail {
+    display: block;
+}
+
+/* Quality Banner */
+.quality-banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: var(--card-bg);
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+}
+
+.quality-banner .quality-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.quality-banner .quality-item.found {
+    color: var(--success-color);
+}
+
+.quality-banner .quality-item.missing {
+    color: var(--text-muted);
+}
+
+.quality-tier {
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.quality-tier.rich {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success-color);
+}
+
+.quality-tier.minimal {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning-color);
+}
+
+.quality-tier.thin {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
+}
+
+/* Requirements Sections */
+.requirements-section {
+    margin-bottom: 1rem;
+}
+
+.requirements-section h5 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.requirements-section h5 .count {
+    background: var(--border-color);
+    color: var(--text-muted);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.requirements-list {
+    margin: 0;
+    padding-left: 1.25rem;
+    font-size: 0.875rem;
+    color: var(--text-color);
+}
+
+.requirements-list li {
+    margin-bottom: 0.25rem;
+    line-height: 1.4;
+}
+
+.requirements-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.875rem;
+}
+
+/* Collapsible Debug Section */
+.debug-section {
+    margin-top: 1rem;
+    border-top: 1px dashed var(--border-color);
+    padding-top: 1rem;
+}
+
+.debug-section summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.25rem 0;
+}
+
+.debug-section summary:hover {
+    color: var(--text-color);
+}
+
+.debug-content {
+    margin-top: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+.debug-content dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.25rem 0.75rem;
+    margin: 0;
+}
+
+.debug-content dt {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.debug-content dd {
+    margin: 0;
+    word-break: break-all;
+}
+
+/* Raw Text Section */
+.raw-text-toggle {
+    margin-top: 0.5rem;
+}
+
+.raw-text-toggle button {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 0.25rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.raw-text-toggle button:hover {
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+.raw-text-content {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Job Card Actions */
+.job-card-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.job-card-actions button {
+    font-size: 0.8125rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-color);
+    transition: all 0.2s;
+}
+
+.job-card-actions button:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+/* Decision Critical Section */
+.decision-critical {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.5rem 1rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--card-bg);
+    border-radius: 0.375rem;
+}
+
+.decision-critical .decision-item {
+    font-size: 0.8125rem;
+}
+
+.decision-critical .decision-item .label {
+    display: block;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.125rem;
+}
+
+.decision-critical .decision-item .value {
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+.decision-critical .decision-item .value.missing {
+    color: var(--text-muted);
+    font-style: italic;
+    font-weight: 400;
+}

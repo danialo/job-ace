@@ -18,9 +18,14 @@ from backend.models.schemas import (
     ConfirmResumeBlocksResponse,
     DeleteBlockResponse,
     ExportRequest,
+    ExtractedRequirements,
+    ExtractionQuality,
     ImproveBlockResponse,
     IntakeRequest,
     IntakeResponse,
+    JobDetailResponse,
+    JobProvenance,
+    JobSummary,
     LogSubmitRequest,
     LogSubmitResponse,
     ParseResumeResponse,
@@ -140,6 +145,117 @@ def list_jobs(db: Session = Depends(get_db)) -> list[dict]:
         }
         for job in jobs
     ]
+
+
+@app.get("/jobs/{job_id}", response_model=JobDetailResponse)
+def get_job_detail(job_id: int, db: Session = Depends(get_db)) -> JobDetailResponse:
+    """Get detailed job information for inspection view."""
+    import json
+
+    job = db.get(models.JobPosting, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    # Parse JSON fields
+    must_haves = json.loads(job.must_haves_json) if job.must_haves_json else []
+    nice_to_haves = json.loads(job.nice_to_haves_json) if job.nice_to_haves_json else []
+    screening_questions = json.loads(job.screening_questions_json) if job.screening_questions_json else []
+
+    # Check for raw text availability
+    artifact_mgr = ArtifactManager(db)
+    artifact_dir = artifact_mgr.ensure_job_dir(job)
+    raw_text_path = Path(artifact_dir) / "raw" / "posting.txt"
+    raw_text_available = raw_text_path.exists()
+    raw_text_chars = raw_text_path.stat().st_size if raw_text_available else 0
+
+    # Calculate quality tier
+    has_salary = job.salary_min is not None or job.salary_max is not None
+    has_location = bool(job.location)
+    has_employment_type = bool(job.employment_type)
+    has_seniority = bool(job.seniority)
+
+    must_haves_count = len(must_haves)
+    nice_to_haves_count = len(nice_to_haves)
+    screening_questions_count = len(screening_questions)
+
+    # Quality tier logic
+    if must_haves_count >= 3 and (has_salary or nice_to_haves_count >= 2):
+        quality_tier = "rich"
+    elif must_haves_count >= 1 or nice_to_haves_count >= 1:
+        quality_tier = "minimal"
+    else:
+        quality_tier = "thin"
+
+    return JobDetailResponse(
+        job=JobSummary(
+            id=job.id,
+            title=job.title,
+            company=job.company.name if job.company else None,
+            location=job.location,
+            url=job.url,
+            portal_hint=job.portal_hint,
+            salary_min=job.salary_min,
+            salary_max=job.salary_max,
+            captured_at=job.created_at,
+            extraction_quality=quality_tier,
+        ),
+        extracted=ExtractedRequirements(
+            must_haves=must_haves,
+            nice_to_haves=nice_to_haves,
+            screening_questions=screening_questions,
+            employment_type=job.employment_type,
+            seniority=job.seniority,
+            deadline=job.deadline,
+        ),
+        provenance=JobProvenance(
+            source_url=job.url,
+            apply_url=job.apply_url,
+            portal_hint=job.portal_hint,
+            captured_at=job.created_at,
+            artifact_dir=str(artifact_dir),
+            jd_json_path=job.jd_json_path,
+            raw_text_available=raw_text_available,
+            raw_text_chars=raw_text_chars,
+        ),
+        quality=ExtractionQuality(
+            must_haves_count=must_haves_count,
+            nice_to_haves_count=nice_to_haves_count,
+            screening_questions_count=screening_questions_count,
+            has_salary=has_salary,
+            has_location=has_location,
+            has_employment_type=has_employment_type,
+            has_seniority=has_seniority,
+            quality_tier=quality_tier,
+        ),
+    )
+
+
+@app.get("/jobs/{job_id}/raw-text")
+def get_job_raw_text(
+    job_id: int,
+    max_chars: int = Query(default=5000, le=50000, description="Maximum characters to return"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Get raw posting text for debugging/inspection."""
+    job = db.get(models.JobPosting, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    artifact_mgr = ArtifactManager(db)
+    artifact_dir = artifact_mgr.ensure_job_dir(job)
+    raw_text_path = Path(artifact_dir) / "raw" / "posting.txt"
+
+    if not raw_text_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Raw text not available")
+
+    full_text = raw_text_path.read_text(encoding="utf-8", errors="replace")
+    truncated = len(full_text) > max_chars
+
+    return {
+        "text": full_text[:max_chars] if truncated else full_text,
+        "total_chars": len(full_text),
+        "truncated": truncated,
+    }
 
 
 @app.get("/blocks")
