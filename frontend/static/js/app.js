@@ -242,12 +242,37 @@ async function handleTailor(e) {
             const totalKeywords = coverageCount + uncoveredCount;
             const coveragePercent = totalKeywords > 0 ? (coverageCount / totalKeywords * 100).toFixed(1) : 0;
 
-            showResult(resultEl, 'success', `
-                <strong>Resume Tailored Successfully!</strong>
-                <br>Coverage: ${esc(coveragePercent)}% (${esc(coverageCount)} of ${esc(totalKeywords)} keywords covered)
-                <br>Compliance: ${data.compliance_pass ? '✅ Pass' : '❌ Fail'}
-                ${data.uncovered.length > 0 ? `<br><strong>Uncovered Keywords:</strong> ${esc(data.uncovered.join(', '))}` : ''}
-            `);
+            // Build structured tailor results display
+            const uncoveredSection = data.uncovered.length > 0
+                ? `<div class="tailor-uncovered">
+                       <h4>⚠️ Uncovered Keywords (${data.uncovered.length})</h4>
+                       <div class="uncovered-pills">
+                           ${data.uncovered.map(kw => `<span class="uncovered-pill">${esc(kw)}</span>`).join('')}
+                       </div>
+                   </div>`
+                : '';
+
+            resultEl.innerHTML = `
+                <div class="tailor-results">
+                    <div class="tailor-summary">
+                        <div class="tailor-stat">
+                            <span class="stat-value">${esc(coveragePercent)}%</span>
+                            <span class="stat-label">Coverage</span>
+                        </div>
+                        <div class="tailor-stat">
+                            <span class="stat-value">${esc(coverageCount)}/${esc(totalKeywords)}</span>
+                            <span class="stat-label">Keywords</span>
+                        </div>
+                        <div class="tailor-stat ${data.compliance_pass ? 'stat-pass' : 'stat-fail'}">
+                            <span class="stat-value">${data.compliance_pass ? '✅' : '❌'}</span>
+                            <span class="stat-label">Compliance</span>
+                        </div>
+                    </div>
+                    ${uncoveredSection}
+                </div>
+            `;
+            resultEl.className = 'result-box tailor-result-box';
+            resultEl.classList.remove('hidden');
 
             // Store tailor params for export
             lastTailorJobId = jobId;
@@ -1007,23 +1032,7 @@ async function loadBlocks() {
 }
 
 function displayBlocks() {
-    // Update the blocks list display (element may not exist in current layout)
-    const blocksList = document.getElementById('blocks-list');
-    if (blocksList) {
-        if (blocks.length === 0) {
-            blocksList.innerHTML = '<p class="text-muted">Upload a resume above or use CLI: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>';
-        } else {
-            blocksList.innerHTML = blocks.map(block => `
-                <div class="block-item">
-                    <h4>Block ${esc(block.id)}: ${esc(block.category)}</h4>
-                    <p><strong>Tags:</strong> ${esc(block.tags.join(', '))}</p>
-                    <p>${esc(block.text)}</p>
-                </div>
-            `).join('');
-        }
-    }
-
-    // Update the block selector
+    // Update the block selector (main UI element for blocks)
     renderBlockSelector();
 }
 
