@@ -35,7 +35,7 @@
 
 ## Up Next
 - [x] Enhanced compliance heuristics (LLM-powered) — implemented by Clawdbot, OpenAI provider added
-- [ ] Job inspection view (see `specs/job-inspection-view.md`)
+- [x] Job inspection view (see `specs/job-inspection-view.md`) — b73f326
 - [ ] Multi-step form workflows
 - [ ] Portal-specific selector catalogs
 - [ ] Scoring and ranking engine
