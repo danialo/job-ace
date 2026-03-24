@@ -1388,6 +1388,11 @@ async function renderResumeBlocksEditor() {
     // Clear existing content
     container.innerHTML = '';
 
+    // Destroy existing Quill instances to prevent double-toolbar on re-render
+    Object.keys(quillEditors).forEach(id => {
+        delete quillEditors[id];
+    });
+
     // Auto-select all blocks by default
     selectedBlockIds = blocks.map(b => b.id);
 
@@ -1446,7 +1451,7 @@ async function renderResumeBlocksEditor() {
             // Initialize Quill editor for this block
             setTimeout(() => {
                 const editorEl = document.getElementById(`editor-${block.id}`);
-                if (editorEl) {
+                if (editorEl && !editorEl.classList.contains('ql-container')) {
                     const quill = new Quill(`#editor-${block.id}`, {
                         theme: 'snow',
                         modules: {

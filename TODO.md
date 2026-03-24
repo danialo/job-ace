@@ -17,7 +17,7 @@
 - [x] Fix deprecation warnings (datetime.utcnow, FastAPI on_event)
 
 ## Bugs
-- [ ] Double Quill toolbar rendering on resume block editor (Resume Intake tab) — two toolbars appear per block
+- [x] Double Quill toolbar rendering on resume block editor (Resume Intake tab) — two toolbars appear per block
 - [x] `#blocks-list` element missing from HTML but referenced in `displayBlocks()` JS — dead code removed (ceff2c7)
 - [x] Tailor results UI is cluttered — structured card layout with stats and pill badges (ceff2c7)
 - [x] P2: Skills group labels stripped — KEY SKILLS / TECHNICAL PROFICIENCIES labels lost during section heading strip, renders as unlabeled flat list (5f30b0e)
