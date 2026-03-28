@@ -760,11 +760,11 @@ def list_templates(db: Session = Depends(get_db)) -> list[TemplateInfo]:
 
 @app.post("/export")
 def export_resume(payload: ExportRequest, db: Session = Depends(get_db)) -> Response:
-    """Export a resume as PDF or DOCX."""
+    """Export a resume as PDF, DOCX, or TXT."""
     service = ExportService(db)
     fmt = payload.format.lower()
-    if fmt not in ("pdf", "docx"):
-        raise HTTPException(status_code=400, detail="Format must be 'pdf' or 'docx'")
+    if fmt not in ("pdf", "docx", "txt"):
+        raise HTTPException(status_code=400, detail="Format must be 'pdf', 'docx', or 'txt'")
 
     try:
         if fmt == "pdf":
@@ -773,12 +773,19 @@ def export_resume(payload: ExportRequest, db: Session = Depends(get_db)) -> Resp
             )
             media_type = "application/pdf"
             ext = "pdf"
-        else:
+        elif fmt == "docx":
             data = service.render_docx(
                 payload.job_id, payload.block_ids, payload.template, payload.resume_version
             )
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ext = "docx"
+        else:  # txt
+            txt = service.render_txt(
+                payload.job_id, payload.block_ids, payload.resume_version
+            )
+            data = txt.encode("utf-8")
+            media_type = "text/plain; charset=utf-8"
+            ext = "txt"
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

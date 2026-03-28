@@ -1,12 +1,21 @@
 """Tests for the ExportService."""
 from __future__ import annotations
 
+import json
+
 import pytest
 from sqlalchemy.orm import Session
 
 from backend.db.session import Base, engine, get_session
-from backend.models.models import ResumeBlock
-from backend.services.export import ExportService
+from backend.models.models import Artifact, Company, JobPosting, ResumeBlock
+from backend.services.export import ExportService, _content_to_txt
+from backend.models.resume_document import (
+    BulletsContent,
+    ItemsContent,
+    ProseContent,
+    SkillsContent,
+    SkillsGroup,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -108,3 +117,185 @@ def test_render_unknown_template_raises(db: Session, sample_blocks: list[int]):
     service = ExportService(db)
     with pytest.raises(ValueError, match="not found"):
         service.render_pdf(job_id=0, block_ids=sample_blocks, template="nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# _content_to_txt unit tests
+# ---------------------------------------------------------------------------
+
+class TestContentToTxt:
+    def test_bullets_prefixed_with_dash(self):
+        content = BulletsContent(bullets=["Led team of five", "Delivered on time"])
+        txt = _content_to_txt(content)
+        assert txt == "- Led team of five\n- Delivered on time"
+
+    def test_prose_paragraphs_blank_line_separated(self):
+        content = ProseContent(paragraphs=["First paragraph.", "Second paragraph."])
+        txt = _content_to_txt(content)
+        assert txt == "First paragraph.\n\nSecond paragraph."
+
+    def test_skills_labeled_groups(self):
+        content = SkillsContent(groups=[
+            SkillsGroup(label="Languages", items=["Python", "Go"]),
+            SkillsGroup(label="Infra", items=["Docker", "K8s"]),
+        ])
+        txt = _content_to_txt(content)
+        assert "Languages: Python, Go" in txt
+        assert "Infra: Docker, K8s" in txt
+
+    def test_skills_unlabeled_group_inline(self):
+        content = SkillsContent(groups=[
+            SkillsGroup(label=None, items=["Python", "Go", "PostgreSQL"]),
+        ])
+        txt = _content_to_txt(content)
+        assert txt == "Python, Go, PostgreSQL"
+
+    def test_items_one_per_line(self):
+        content = ItemsContent(items=["CompTIA Network+", "AWS Solutions Architect"])
+        txt = _content_to_txt(content)
+        assert txt == "CompTIA Network+\nAWS Solutions Architect"
+
+
+# ---------------------------------------------------------------------------
+# render_txt integration tests
+# ---------------------------------------------------------------------------
+
+class TestRenderTxt:
+    def test_returns_string(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert isinstance(result, str)
+
+    def test_ends_with_newline(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert result.endswith("\n")
+
+    def test_contains_name(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert "Jane Doe" in result
+
+    def test_contains_contact_info(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert "jane@example.com" in result
+        assert "555-123-4567" in result
+
+    def test_section_headings_uppercase(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert "EXPERIENCE" in result
+        assert "EDUCATION" in result
+        assert "SKILLS" in result
+
+    def test_section_headings_have_underlines(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        lines = result.splitlines()
+        for i, line in enumerate(lines):
+            if line == "EXPERIENCE":
+                assert i + 1 < len(lines)
+                assert set(lines[i + 1]) == {"-"}
+                break
+        else:
+            pytest.fail("EXPERIENCE heading not found")
+
+    def test_bullets_rendered_with_dash(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert "- Designed and built REST APIs" in result
+        assert "- Led migration from monolith" in result
+
+    def test_no_html_tags(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert "<" not in result
+        assert ">" not in result
+
+    def test_entry_header_in_output(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert "Senior Software Engineer" in result
+        assert "Acme Corp" in result
+
+    def test_dates_in_output(self, db: Session, sample_blocks: list[int]):
+        service = ExportService(db)
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert "Present" in result
+
+    def test_no_blocks_raises(self, db: Session):
+        service = ExportService(db)
+        with pytest.raises(ValueError, match="No block IDs"):
+            service.render_txt(job_id=0, block_ids=[])
+
+
+# ---------------------------------------------------------------------------
+# Artifact persistence tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def job_with_posting(db: Session) -> JobPosting:
+    """Create a minimal JobPosting for artifact persistence tests."""
+    company = Company(name="Artifact Corp")
+    db.add(company)
+    db.flush()
+    posting = JobPosting(
+        title="Test Role",
+        company_id=company.id,
+        location="Remote",
+        url="https://artifact.example.com/jobs/1",
+    )
+    db.add(posting)
+    db.flush()
+    db.commit()
+    return posting
+
+
+class TestArtifactPersistence:
+    def test_resume_document_json_persisted(
+        self, db: Session, sample_blocks: list[int], job_with_posting: JobPosting, tmp_path, monkeypatch
+    ):
+        """render_txt with a valid job_id should persist resume_document.json."""
+        import backend.config as cfg
+
+        # Redirect data_root to tmp_path so we don't pollute real storage
+        mock_settings = cfg.Settings(
+            data_root=tmp_path,
+            database_url="sqlite:///:memory:",
+        )
+        monkeypatch.setattr(cfg, "get_settings", lambda: mock_settings)
+
+        # Also patch the artifact manager's settings reference
+        import backend.services.artifacts as art_mod
+        monkeypatch.setattr(art_mod, "settings", mock_settings)
+
+        service = ExportService(db)
+        service.render_txt(
+            job_id=job_with_posting.id,
+            block_ids=sample_blocks,
+        )
+
+        # Artifact record should exist in DB
+        artifact = db.query(Artifact).filter(
+            Artifact.job_posting_id == job_with_posting.id,
+            Artifact.kind == "resume_document",
+        ).first()
+        assert artifact is not None, "resume_document artifact not found in DB"
+
+        # File should exist and be valid JSON
+        artifact_path = artifact.path
+        content = open(artifact_path).read()
+        doc_json = json.loads(content)
+        assert "basics" in doc_json
+        assert "sections" in doc_json
+        assert "metadata" in doc_json
+
+    def test_persist_skipped_when_no_job(
+        self, db: Session, sample_blocks: list[int]
+    ):
+        """render_txt with job_id=0 (non-existent) should not raise."""
+        service = ExportService(db)
+        # Should succeed silently even though job 0 doesn't exist
+        result = service.render_txt(job_id=0, block_ids=sample_blocks)
+        assert isinstance(result, str)
