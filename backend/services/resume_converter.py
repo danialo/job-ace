@@ -139,6 +139,19 @@ class ResumeConverter:
                         section["name"]
                     )
 
+                    # Strip redundant header line from content when metadata is populated
+                    for block in section_blocks:
+                        if block.get("job_title") or block.get("company"):
+                            lines = block["content"].splitlines()
+                            if lines:
+                                # Strip all spaces for comparison (PDF extraction splits words)
+                                first_norm = re.sub(r'\s', '', lines[0]).lower()
+                                meta_parts = [block.get("job_title"), block.get("company"),
+                                              block.get("start_date"), block.get("end_date")]
+                                meta_parts = [re.sub(r'\s', '', p).lower() for p in meta_parts if p]
+                                if meta_parts and all(p in first_norm for p in meta_parts):
+                                    block["content"] = "\n".join(lines[1:]).strip()
+
                     # Check for potential hallucination (output much longer than input)
                     total_output_length = sum(len(block.get("content", "")) for block in section_blocks)
                     if total_output_length > len(section_text_stripped) * 2:
