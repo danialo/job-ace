@@ -99,9 +99,14 @@ class ComplianceCheck:
 
     @classmethod
     def from_dict(cls, data: Dict) -> "ComplianceCheck":
+        fabrications = data.get("fabrications", []) or []
+        # Derive pass/fail from the actual fabrications found, not the model's
+        # self-reported "ok" flag — that flag is unreliable (models return ok=false
+        # even when they report zero fabrications). No fabrications => compliant.
+        # style_changes are acceptable rewording and never count against compliance.
         return cls(
-            ok=data.get("ok", True),
-            fabrications=data.get("fabrications", []),
+            ok=len(fabrications) == 0,
+            fabrications=fabrications,
             style_changes=data.get("style_changes", []),
             confidence=data.get("confidence", 0.5),
             notes=data.get("notes", ""),
