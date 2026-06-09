@@ -1182,7 +1182,9 @@ async function renderResumeBlocksEditor() {
             // Initialize Quill editor for this block
             setTimeout(() => {
                 const editorEl = document.getElementById(`editor-${block.id}`);
-                if (editorEl) {
+                // Guard against duplicate toolbars: skip if Quill already initialized this
+                // element (happens when the editor re-renders before this deferred init runs).
+                if (editorEl && !editorEl.classList.contains('ql-container')) {
                     const quill = new Quill(`#editor-${block.id}`, {
                         theme: 'snow',
                         modules: {
