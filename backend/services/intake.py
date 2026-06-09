@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -15,6 +16,11 @@ from backend.services.llm import BaseLLMClient, get_llm_client
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Below this many characters of extracted text we treat the fetch as failed
+# (bot-protected / empty page) rather than feeding near-nothing to the LLM,
+# which would otherwise fabricate a plausible job posting from nothing.
+MIN_JD_CHARS = 80
 
 
 class IntakeService:
@@ -33,6 +39,39 @@ class IntakeService:
         html = self._fetch_html(url)
         soup = BeautifulSoup(html, "html.parser")
         text = soup.get_text("\n", strip=True)
+
+        # Fail loud instead of fabricating: bot-protected sites (Indeed, LinkedIn) return
+        # an empty/challenge page, and the LLM extractor would otherwise invent a plausible
+        # job from nothing. Direct the caller to paste the description text instead.
+        if len(text.strip()) < MIN_JD_CHARS:
+            raise ValueError(
+                f"The fetched page had almost no text ({len(text.strip())} chars) - the site "
+                "likely blocked the request. Paste the job description text instead."
+            )
+
+        return self._persist(url, text, html, force)
+
+    def run_from_text(
+        self, text: str, url: str | None = None, force: bool = True
+    ) -> models.JobPosting:
+        """Build a job posting from pasted description text, with no fetching.
+
+        For postings on sites that block scraping. When no ``url`` is supplied a
+        synthetic ``paste:<hash>`` key is used so the row still has a stable id.
+        """
+        text = (text or "").strip()
+        if len(text) < MIN_JD_CHARS:
+            raise ValueError(
+                f"The job description is too short ({len(text)} chars) to extract reliably."
+            )
+        if not url:
+            url = "paste:" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+        return self._persist(url, text, text, force)
+
+    def _persist(self, url: str, text: str, html: str, force: bool) -> models.JobPosting:
+        existing = self.db.scalar(select(models.JobPosting).where(models.JobPosting.url == url))
+        if existing and not force:
+            return existing
 
         extraction = self.llm.extract_job_json(text)
         company_name = extraction.company or self._guess_company_from_url(url)

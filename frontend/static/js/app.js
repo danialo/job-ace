@@ -93,6 +93,8 @@ async function checkAPIStatus() {
 function initForms() {
     // Intake Form
     document.getElementById('intake-form').addEventListener('submit', handleIntake);
+    const captureTextBtn = document.getElementById('capture-text-btn');
+    if (captureTextBtn) captureTextBtn.addEventListener('click', handleIntakeText);
 
     // Tailor Form
     document.getElementById('tailor-form').addEventListener('submit', handleTailor);
@@ -678,6 +680,40 @@ async function handleSubmit(e) {
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Log Submission';
+    }
+}
+
+// Capture a job from pasted description text (for sites that block scraping)
+async function handleIntakeText() {
+    const text = document.getElementById('job-text').value.trim();
+    const url = document.getElementById('job-text-url').value.trim();
+    const resultEl = document.getElementById('intake-text-result');
+    const btn = document.getElementById('capture-text-btn');
+    if (!text) { showResult(resultEl, 'error', 'Paste a job description first.'); return; }
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.innerHTML = '<span class="spinner"></span> Capturing...';
+    try {
+        const response = await fetch(`${API_BASE}/intake-text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, url: url || null })
+        });
+        const data = await response.json();
+        if (response.ok) {
+            showResult(resultEl, 'success', `<strong>Job Captured Successfully!</strong><br>Job ID: ${esc(data.job_id)}`);
+            document.getElementById('job-text').value = '';
+            document.getElementById('job-text-url').value = '';
+            loadJobs();
+        } else {
+            const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to capture job';
+            showResult(resultEl, 'error', `Error: ${esc(errorMsg)}`);
+        }
+    } catch (error) {
+        showResult(resultEl, 'error', `Network error: ${esc(error.message)}`);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
     }
 }
 

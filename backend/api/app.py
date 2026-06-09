@@ -21,6 +21,7 @@ from backend.models.schemas import (
     ImproveBlockResponse,
     IntakeRequest,
     IntakeResponse,
+    IntakeTextRequest,
     LogSubmitRequest,
     LogSubmitResponse,
     ParseResumeResponse,
@@ -63,7 +64,22 @@ app.add_middleware(
 @app.post("/intake", response_model=IntakeResponse, status_code=status.HTTP_201_CREATED)
 def intake(payload: IntakeRequest, db: Session = Depends(get_db)) -> IntakeResponse:
     service = IntakeService(db)
-    job_posting = service.run(payload.url, payload.force)
+    try:
+        job_posting = service.run(payload.url, payload.force)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    artifact_dir = ArtifactManager(db).ensure_job_dir(job_posting)
+    return IntakeResponse(job_id=job_posting.id, artifact_dir=artifact_dir)
+
+
+@app.post("/intake-text", response_model=IntakeResponse, status_code=status.HTTP_201_CREATED)
+def intake_text(payload: IntakeTextRequest, db: Session = Depends(get_db)) -> IntakeResponse:
+    """Capture a job from pasted description text (for sites that block scraping)."""
+    service = IntakeService(db)
+    try:
+        job_posting = service.run_from_text(payload.text, payload.url, force=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     artifact_dir = ArtifactManager(db).ensure_job_dir(job_posting)
     return IntakeResponse(job_id=job_posting.id, artifact_dir=artifact_dir)
 

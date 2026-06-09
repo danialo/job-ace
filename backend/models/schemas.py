@@ -17,6 +17,11 @@ class IntakeResponse(BaseModel):
     artifact_dir: Path
 
 
+class IntakeTextRequest(BaseModel):
+    text: str
+    url: str | None = None
+
+
 class TailorRequest(BaseModel):
     job_id: int
     allowed_block_ids: List[int] = Field(default_factory=list)

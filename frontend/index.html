@@ -112,6 +112,21 @@
             </div>
 
             <div class="card">
+                <h3>Or paste the description</h3>
+                <p>For sites that block scraping (Indeed, LinkedIn, etc.), paste the full job text here.</p>
+                <div class="form-group">
+                    <label for="job-text-url">Job URL (optional, for your records)</label>
+                    <input type="url" id="job-text-url" placeholder="https://...">
+                </div>
+                <div class="form-group">
+                    <label for="job-text">Job description</label>
+                    <textarea id="job-text" rows="10" placeholder="Paste the full job description here..."></textarea>
+                </div>
+                <button type="button" id="capture-text-btn" class="btn btn-primary">Capture from text</button>
+                <div id="intake-text-result" class="result-box hidden"></div>
+            </div>
+
+            <div class="card">
                 <h3>Recent Jobs</h3>
                 <div id="jobs-list" class="jobs-list">
                     <p class="text-muted">No jobs captured yet. Add one above!</p>
