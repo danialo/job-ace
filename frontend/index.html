@@ -10,20 +10,29 @@
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🎯 Job Ace</h1>
-            <p class="subtitle">Local-First Job Application Assistant</p>
-            <button id="reset-data-btn" class="btn-reset" title="Clear all resume blocks and reset data">Reset Data</button>
-        </header>
+    <div class="app-shell">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-brand">
+                <span class="sidebar-logo">🎯</span>
+                <span class="sidebar-brand-text">Job Ace<small>Application Assistant</small></span>
+            </div>
+            <nav class="sidebar-nav" aria-label="Workflow steps">
+                <button class="nav-item active" data-tab="resume"><span class="nav-num">1</span><span class="nav-label">Resume Intake</span></button>
+                <button class="nav-item" data-tab="intake"><span class="nav-num">2</span><span class="nav-label">Capture Job</span></button>
+                <button class="nav-item" data-tab="tailor"><span class="nav-num">3</span><span class="nav-label">Tailor Resume</span></button>
+                <button class="nav-item" data-tab="capture"><span class="nav-num">4</span><span class="nav-label">Capture Form</span></button>
+                <button class="nav-item" data-tab="apply"><span class="nav-num">5</span><span class="nav-label">Apply</span></button>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="reset-data-btn" class="btn-reset" title="Clear all resume blocks and reset data">Reset Data</button>
+                <p class="sidebar-status">API <span id="api-status" class="status-indicator">Checking...</span></p>
+            </div>
+        </aside>
 
-        <nav class="tabs">
-            <button class="tab-button active" data-tab="resume">1. Resume Intake</button>
-            <button class="tab-button" data-tab="intake">2. Capture Job</button>
-            <button class="tab-button" data-tab="tailor">3. Tailor Resume</button>
-            <button class="tab-button" data-tab="capture">4. Capture Form</button>
-            <button class="tab-button" data-tab="apply">5. Apply</button>
-        </nav>
+        <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+        <main class="main-content">
+            <button class="nav-toggle" id="nav-toggle" aria-label="Open navigation">☰</button>
 
         <!-- Tab 1: Resume Intake -->
         <div id="resume" class="tab-content active">
@@ -292,6 +301,7 @@
                 </div>
             </div>
         </div>
+        </main>
     </div>
 
     <!-- Edit Block Modal -->
@@ -355,10 +365,6 @@
         </div>
     </div>
 
-    <footer>
-        <p>Job Ace v0.1.0 - API Status: <span id="api-status" class="status-indicator">Checking...</span></p>
-    </footer>
-
-    <script src="static/js/app.js"></script>
+    <script src="static/js/app.js?v=20260613-nav1"></script>
 </body>
 </html>
