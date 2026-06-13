@@ -355,10 +355,24 @@
         </div>
     </div>
 
+    <!-- Job Review Modal -->
+    <div id="job-review-modal" class="modal hidden">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="job-review-title">Captured Job</h3>
+                <button class="modal-close" onclick="closeJobReviewModal()">&times;</button>
+            </div>
+            <div id="job-review-body" class="job-review-body"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeJobReviewModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <footer>
         <p>Job Ace v0.1.0 - API Status: <span id="api-status" class="status-indicator">Checking...</span></p>
     </footer>
 
-    <script src="static/js/app.js?v=20260613-4"></script>
+    <script src="static/js/app.js?v=20260613-int1"></script>
 </body>
 </html>

@@ -4,9 +4,12 @@ const API_BASE = window.location.origin;
 // HTML escape helper to prevent XSS
 function esc(str) {
     if (str == null) return '';
-    const div = document.createElement('div');
-    div.appendChild(document.createTextNode(String(str)));
-    return div.innerHTML;
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // State
@@ -738,15 +741,71 @@ function displayJobs() {
         return;
     }
 
-    jobsList.innerHTML = jobs.map(job => `
+    jobsList.innerHTML = jobs.map(job => {
+        const isLink = /^https?:\/\//i.test(job.url || '');
+        const source = isLink
+            ? `<p><strong>Source:</strong> <a href="${esc(job.url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
+            : `<p><strong>Source:</strong> <span class="text-muted">Pasted text (no URL)</span></p>`;
+        return `
         <div class="job-item">
             <h4>${esc(job.title || 'Untitled Job')}</h4>
             <p><strong>Company:</strong> ${esc(job.company)}</p>
             <p><strong>Location:</strong> ${esc(job.location || 'N/A')}</p>
             <p><strong>Job ID:</strong> ${esc(job.id)}</p>
-            <p><strong>URL:</strong> <a href="${esc(job.url)}" target="_blank">${esc(job.url)}</a></p>
+            ${source}
+            <button type="button" class="btn btn-secondary" onclick="reviewJob(${esc(job.id)})">Review capture</button>
         </div>
-    `).join('');
+    `;
+    }).join('');
+}
+
+async function reviewJob(jobId) {
+    const modal = document.getElementById('job-review-modal');
+    const titleEl = document.getElementById('job-review-title');
+    const body = document.getElementById('job-review-body');
+    titleEl.textContent = 'Captured Job';
+    body.innerHTML = '<p class="text-muted">Loading…</p>';
+    modal.classList.remove('hidden');
+
+    const renderList = (items) => (items && items.length)
+        ? `<ul class="job-review-list">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`
+        : '<p class="text-muted">None captured.</p>';
+
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}`);
+        if (!response.ok) {
+            body.innerHTML = `<p style="color:#c0392b;">Could not load job (status ${esc(response.status)}).</p>`;
+            return;
+        }
+        const job = await response.json();
+        titleEl.textContent = job.title || 'Captured Job';
+
+        const isLink = /^https?:\/\//i.test(job.url || '');
+        const meta = [
+            ['Company', job.company],
+            ['Location', job.location],
+            ['Employment type', job.employment_type],
+            ['Seniority', job.seniority],
+            ['Status', job.status],
+        ].filter(([, v]) => v)
+         .map(([k, v]) => `<p><strong>${k}:</strong> ${esc(v)}</p>`).join('');
+
+        body.innerHTML = `
+            ${meta}
+            ${isLink
+                ? `<p><strong>Source:</strong> <a href="${esc(job.url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
+                : `<p><strong>Source:</strong> <span class="text-muted">Pasted text (no URL)</span></p>`}
+            <h4>Must-haves</h4>${renderList(job.must_haves)}
+            <h4>Nice-to-haves</h4>${renderList(job.nice_to_haves)}
+            <h4>Screening questions</h4>${renderList(job.screening_questions)}
+        `;
+    } catch (error) {
+        body.innerHTML = `<p style="color:#c0392b;">Network error: ${esc(error.message)}</p>`;
+    }
+}
+
+function closeJobReviewModal() {
+    document.getElementById('job-review-modal').classList.add('hidden');
 }
 
 // Load Blocks - Only if cookie indicates user has uploaded resume
@@ -808,6 +867,24 @@ function displayBlocks() {
     renderBlockSelector();
 }
 
+// Canonical resume section order for displaying blocks. Categories not listed
+// fall to the end, alphabetically among themselves.
+const RESUME_CATEGORY_ORDER = [
+    'contact', 'summary', 'experience', 'education',
+    'skills', 'projects', 'certifications', 'awards', 'other',
+];
+
+function orderedCategories(categories) {
+    const rank = (c) => {
+        const i = RESUME_CATEGORY_ORDER.indexOf((c || '').toLowerCase());
+        return i === -1 ? RESUME_CATEGORY_ORDER.length : i;
+    };
+    return [...categories].sort((a, b) => {
+        const d = rank(a) - rank(b);
+        return d !== 0 ? d : a.localeCompare(b);
+    });
+}
+
 function renderBlockSelector(autoSelectIds = []) {
     const selector = document.getElementById('block-selector');
 
@@ -828,7 +905,7 @@ function renderBlockSelector(autoSelectIds = []) {
 
     // Build HTML for each category
     let html = '';
-    Object.keys(grouped).sort().forEach(category => {
+    orderedCategories(Object.keys(grouped)).forEach(category => {
         html += `<div class="block-category">`;
         html += `<div class="block-category-header">${category}</div>`;
 
