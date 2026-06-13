@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    settings = Settings()
-    settings.data_root.mkdir(parents=True, exist_ok=True)
-    return settings
+    # Pure: no filesystem side effects. data_root is created lazily at write
+    # time (ArtifactManager.ensure_job_dir / capture / prefill all mkdir with
+    # parents=True), so merely importing the app never touches the filesystem.
+    return Settings()

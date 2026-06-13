@@ -175,6 +175,57 @@ def test_list_jobs_with_data(client, api_session):
     assert jobs[0]["title"] == "Dev"
 
 
+# --- Job detail (review capture) ---
+
+def test_get_job_detail(client, api_session):
+    company = models.Company(name="DetailCo")
+    api_session.add(company)
+    api_session.flush()
+    job = models.JobPosting(
+        company_id=company.id,
+        url="paste:abc123",
+        title="Advocate",
+        location="Remote",
+        must_haves_json=json.dumps(["Degree in social work", "1-3 years experience"]),
+        nice_to_haves_json=json.dumps(["Bilingual"]),
+        screening_questions_json=json.dumps(["Why this role?"]),
+    )
+    api_session.add(job)
+    api_session.flush()
+
+    resp = client.get(f"/jobs/{job.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == job.id
+    assert data["title"] == "Advocate"
+    assert data["company"] == "DetailCo"
+    assert data["url"] == "paste:abc123"
+    assert data["must_haves"] == ["Degree in social work", "1-3 years experience"]
+    assert data["nice_to_haves"] == ["Bilingual"]
+    assert data["screening_questions"] == ["Why this role?"]
+
+
+def test_get_job_detail_empty_requirements(client, api_session):
+    company = models.Company(name="EmptyCo")
+    api_session.add(company)
+    api_session.flush()
+    job = models.JobPosting(company_id=company.id, url="https://example.com/e", title="Eng")
+    api_session.add(job)
+    api_session.flush()
+
+    resp = client.get(f"/jobs/{job.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["must_haves"] == []
+    assert data["nice_to_haves"] == []
+    assert data["screening_questions"] == []
+
+
+def test_get_job_detail_not_found(client):
+    resp = client.get("/jobs/9999")
+    assert resp.status_code == 404
+
+
 # --- Applications ---
 
 def test_list_applications_with_data(client, api_session):

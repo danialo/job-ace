@@ -4,9 +4,12 @@ const API_BASE = window.location.origin;
 // HTML escape helper to prevent XSS
 function esc(str) {
     if (str == null) return '';
-    const div = document.createElement('div');
-    div.appendChild(document.createTextNode(String(str)));
-    return div.innerHTML;
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // State
@@ -738,15 +741,71 @@ function displayJobs() {
         return;
     }
 
-    jobsList.innerHTML = jobs.map(job => `
+    jobsList.innerHTML = jobs.map(job => {
+        const isLink = /^https?:\/\//i.test(job.url || '');
+        const source = isLink
+            ? `<p><strong>Source:</strong> <a href="${esc(job.url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
+            : `<p><strong>Source:</strong> <span class="text-muted">Pasted text (no URL)</span></p>`;
+        return `
         <div class="job-item">
             <h4>${esc(job.title || 'Untitled Job')}</h4>
             <p><strong>Company:</strong> ${esc(job.company)}</p>
             <p><strong>Location:</strong> ${esc(job.location || 'N/A')}</p>
             <p><strong>Job ID:</strong> ${esc(job.id)}</p>
-            <p><strong>URL:</strong> <a href="${esc(job.url)}" target="_blank">${esc(job.url)}</a></p>
+            ${source}
+            <button type="button" class="btn btn-secondary" onclick="reviewJob(${esc(job.id)})">Review capture</button>
         </div>
-    `).join('');
+    `;
+    }).join('');
+}
+
+async function reviewJob(jobId) {
+    const modal = document.getElementById('job-review-modal');
+    const titleEl = document.getElementById('job-review-title');
+    const body = document.getElementById('job-review-body');
+    titleEl.textContent = 'Captured Job';
+    body.innerHTML = '<p class="text-muted">Loading…</p>';
+    modal.classList.remove('hidden');
+
+    const renderList = (items) => (items && items.length)
+        ? `<ul class="job-review-list">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`
+        : '<p class="text-muted">None captured.</p>';
+
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}`);
+        if (!response.ok) {
+            body.innerHTML = `<p style="color:#c0392b;">Could not load job (status ${esc(response.status)}).</p>`;
+            return;
+        }
+        const job = await response.json();
+        titleEl.textContent = job.title || 'Captured Job';
+
+        const isLink = /^https?:\/\//i.test(job.url || '');
+        const meta = [
+            ['Company', job.company],
+            ['Location', job.location],
+            ['Employment type', job.employment_type],
+            ['Seniority', job.seniority],
+            ['Status', job.status],
+        ].filter(([, v]) => v)
+         .map(([k, v]) => `<p><strong>${k}:</strong> ${esc(v)}</p>`).join('');
+
+        body.innerHTML = `
+            ${meta}
+            ${isLink
+                ? `<p><strong>Source:</strong> <a href="${esc(job.url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
+                : `<p><strong>Source:</strong> <span class="text-muted">Pasted text (no URL)</span></p>`}
+            <h4>Must-haves</h4>${renderList(job.must_haves)}
+            <h4>Nice-to-haves</h4>${renderList(job.nice_to_haves)}
+            <h4>Screening questions</h4>${renderList(job.screening_questions)}
+        `;
+    } catch (error) {
+        body.innerHTML = `<p style="color:#c0392b;">Network error: ${esc(error.message)}</p>`;
+    }
+}
+
+function closeJobReviewModal() {
+    document.getElementById('job-review-modal').classList.add('hidden');
 }
 
 // Load Blocks - Only if cookie indicates user has uploaded resume
@@ -808,6 +867,24 @@ function displayBlocks() {
     renderBlockSelector();
 }
 
+// Canonical resume section order for displaying blocks. Categories not listed
+// fall to the end, alphabetically among themselves.
+const RESUME_CATEGORY_ORDER = [
+    'contact', 'summary', 'experience', 'education',
+    'skills', 'projects', 'certifications', 'awards', 'other',
+];
+
+function orderedCategories(categories) {
+    const rank = (c) => {
+        const i = RESUME_CATEGORY_ORDER.indexOf((c || '').toLowerCase());
+        return i === -1 ? RESUME_CATEGORY_ORDER.length : i;
+    };
+    return [...categories].sort((a, b) => {
+        const d = rank(a) - rank(b);
+        return d !== 0 ? d : a.localeCompare(b);
+    });
+}
+
 function renderBlockSelector(autoSelectIds = []) {
     const selector = document.getElementById('block-selector');
 
@@ -828,7 +905,7 @@ function renderBlockSelector(autoSelectIds = []) {
 
     // Build HTML for each category
     let html = '';
-    Object.keys(grouped).sort().forEach(category => {
+    orderedCategories(Object.keys(grouped)).forEach(category => {
         html += `<div class="block-category">`;
         html += `<div class="block-category-header">${category}</div>`;
 
@@ -1083,45 +1160,20 @@ function toggleBlockSelection(blockId) {
     updateReassembledView();
 }
 
-// Update reassembled view with ONLY selected blocks
+// Update reassembled view — continuous text of ONLY the included sections.
+// Removal is done by unchecking "Include in resume" on a section (no per-card
+// chrome — this is a clean preview of the assembled resume).
 function updateReassembledView() {
     const reassembledEl = document.getElementById('reassembled-resume-text');
     if (!reassembledEl) return;
 
-    // Only show blocks that are selected, in the order they appear in selectedBlockIds
     const selectedBlocks = selectedBlockIds
         .map(id => blocks.find(b => b.id === id))
-        .filter(b => b); // Remove any undefined entries
+        .filter(b => b); // drop any stale ids
 
     fullResumeText = selectedBlocks.map(b => b.text).join('\n\n');
-
-    if (selectedBlocks.length === 0) {
-        reassembledEl.innerHTML = '<p class="text-muted">(No blocks selected)</p>';
-        return;
-    }
-
-    reassembledEl.innerHTML = selectedBlocks.map(b => `
-        <div class="reassembled-section" data-block-id="${b.id}">
-            <button class="reassembled-remove" onclick="removeFromReassembled(${b.id})" title="Remove this section from the resume">✕</button>
-            <div class="reassembled-section-cat">${esc(b.category || 'Section')}</div>
-            <div class="reassembled-section-text">${esc(b.text)}</div>
-        </div>
-    `).join('');
-}
-
-// Drop a single section from the reassembled resume (keeps the block in the DB;
-// just removes it from this resume's selection). Syncs the editor checkbox.
-function removeFromReassembled(blockId) {
-    const i = selectedBlockIds.indexOf(blockId);
-    if (i !== -1) selectedBlockIds.splice(i, 1);
-    // Sync both checkbox sets so the section is also excluded from tailor/export:
-    //   select-block-<id> drives the editor + reassembled view,
-    //   block-<id> is read by the tailor/export submit.
-    const editorCb = document.getElementById(`select-block-${blockId}`);
-    if (editorCb) editorCb.checked = false;
-    const exportCb = document.getElementById(`block-${blockId}`);
-    if (exportCb) exportCb.checked = false;
-    updateReassembledView();
+    reassembledEl.textContent =
+        fullResumeText || '(No sections included yet — tick "Include in resume" on the sections you want.)';
 }
 
 function showFullResumeEditor() {
@@ -1187,8 +1239,11 @@ async function renderResumeBlocksEditor() {
     // Clear existing content
     container.innerHTML = '';
 
-    // Auto-select all blocks by default
-    selectedBlockIds = blocks.map(b => b.id);
+    // Start with NOTHING selected — the reassembled pane stays empty until the
+    // user explicitly includes sections. (Previously this auto-selected all
+    // blocks while the pane showed nothing, so the first Save dumped the whole
+    // resume into the pane.)
+    selectedBlockIds = [];
 
     // Render each category section
     for (const [category, categoryBlocks] of Object.entries(blocksByCategory)) {
@@ -1227,7 +1282,7 @@ async function renderResumeBlocksEditor() {
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
                     <div class="block-editor-selection">
-                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" checked />
+                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" />
                         <label for="select-block-${block.id}">Include in resume</label>
                     </div>
                     <div class="block-editor-actions">
@@ -1325,7 +1380,8 @@ async function saveBlockContent(blockId) {
                 }
             }
 
-            // Update the reassembled view if comparison is visible
+            // Refresh the reassembled preview. Safe now that selection is
+            // opt-in (only the sections the user included appear).
             updateReassembledView();
 
             // Show success feedback
