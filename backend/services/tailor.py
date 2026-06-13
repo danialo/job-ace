@@ -14,6 +14,22 @@ from backend.services.llm import BaseLLMClient, get_llm_client
 from backend.config import get_settings
 
 
+# Only prose blocks get aligned to the job. Factual lists (skills, education,
+# certifications, contact) are left verbatim — rewriting them adds no honest
+# signal and risks cosmetic damage (stray bullets, reordered facts).
+ALIGNABLE_CATEGORIES = {
+    "summary",
+    "professional summary",
+    "career summary",
+    "profile",
+    "objective",
+    "experience",
+    "work experience",
+    "work",
+    "employment",
+}
+
+
 class TailorService:
     def __init__(self, db: Session, llm: BaseLLMClient | None = None):
         self.db = db
@@ -68,6 +84,10 @@ class TailorService:
 
         compliance = run_compliance(self.db, job_posting, blocks, result)
 
+        # Produce + store a per-job tailored version of the blocks for export
+        # (rewritten to the job, fabrication-gated). Never mutates the base blocks.
+        tailored = self.generate_tailored_overrides(job_id, allowed_block_ids)
+
         response = {
             "resume_body_md": resume_body_md,
             "ats_text": ats_text,
@@ -75,8 +95,48 @@ class TailorService:
             "uncovered": result.get("uncovered_keywords", []),
             "diff": json.dumps(result.get("diff_instructions", []), ensure_ascii=False),
             "compliance_pass": compliance.ok,
+            "tailored_block_count": len(tailored),
         }
         return response
+
+    def generate_tailored_overrides(
+        self, job_id: int, allowed_block_ids: List[int]
+    ) -> Dict[int, str]:
+        """Rewrite blocks to the job (no fabrication), compliance-gate, and persist for
+        export. Returns {block_id: text}. If the rewrite trips the fabrication check, ALL
+        overrides are dropped so export falls back to the candidate's honest base text."""
+        job_posting = self._get_job(job_id)
+        jd = self._load_jd(job_posting)
+        blocks = self._load_blocks(allowed_block_ids)
+
+        # Align only prose blocks; leave factual lists untouched.
+        prose_blocks = [
+            b for b in blocks
+            if (b.get("category") or "").lower().strip() in ALIGNABLE_CATEGORIES
+        ]
+
+        rewrite = getattr(self.llm, "rewrite_blocks_for_job", None)
+        overrides: Dict[int, str] = (
+            rewrite(jd, prose_blocks) if rewrite and prose_blocks else {}
+        )
+
+        if overrides:
+            tailored_text = "\n\n".join(overrides.get(b["id"], b["text"]) for b in blocks)
+            try:
+                check = self.llm.check_compliance(tailored_text, blocks, jd)
+                if not check.ok:
+                    overrides = {}
+            except Exception:
+                overrides = {}
+
+        self.artifacts.write_text(
+            job_posting,
+            "tailored_blocks",
+            "derived/tailored_blocks.json",
+            json.dumps({str(k): v for k, v in overrides.items()}, ensure_ascii=False, indent=2),
+        )
+        self.db.flush()
+        return overrides
 
     def _get_job(self, job_id: int) -> models.JobPosting:
         job_posting = self.db.get(models.JobPosting, job_id)

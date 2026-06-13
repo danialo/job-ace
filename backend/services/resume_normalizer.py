@@ -109,11 +109,18 @@ class ResumeNormalizer:
         self.db = db
         self._events: List[NormalizationEvent] = []
 
-    def normalize(self, block_ids: List[int]) -> ResumeDocument:
-        """Load blocks from DB and produce a normalized ResumeDocument."""
+    def normalize(
+        self, block_ids: List[int], text_overrides: Dict[int, str] | None = None
+    ) -> ResumeDocument:
+        """Load blocks from DB and produce a normalized ResumeDocument.
+
+        ``text_overrides`` maps block id -> replacement text (e.g. a per-job tailored
+        version). Overrides are applied in-memory only; the stored blocks are untouched.
+        """
         if not block_ids:
             raise ValueError("No block IDs provided")
 
+        overrides = text_overrides or {}
         stmt = select(models.ResumeBlock).where(models.ResumeBlock.id.in_(block_ids))
         blocks = list(self.db.scalars(stmt).all())
         if not blocks:
@@ -126,13 +133,14 @@ class ResumeNormalizer:
 
         for block in blocks:
             cat = self._classify_category(block.category)
+            block_text = overrides.get(block.id, block.text)
 
             if cat == SectionCategory.summary and block.category == "contact":
                 # Contact blocks feed into basics
-                basics = self._parse_basics(block.text, basics)
+                basics = self._parse_basics(block_text, basics)
                 continue
 
-            entry = self._normalize_block(block, cat)
+            entry = self._normalize_block(block, cat, block_text)
             sections_map.setdefault(cat, []).append(entry)
 
             # Use original section heading if available
@@ -194,14 +202,17 @@ class ResumeNormalizer:
 
         return mapping.get(normalized, SectionCategory.other)
 
-    def _normalize_block(self, block: models.ResumeBlock, cat: SectionCategory) -> Entry:
+    def _normalize_block(
+        self, block: models.ResumeBlock, cat: SectionCategory, text_override: str | None = None
+    ) -> Entry:
         """Normalize a single block into an Entry based on its category."""
+        block_text = block.text if text_override is None else text_override
         source = SourceProvenance(
             source_block_id=block.id,
-            source_text=block.text,
+            source_text=block_text,
         )
 
-        text = self._clean_artifacts(block.text)
+        text = self._clean_artifacts(block_text)
 
         # Strip leading section heading from text if it matches the category
         text = self._strip_section_heading(text, cat)

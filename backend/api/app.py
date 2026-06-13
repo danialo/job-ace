@@ -663,13 +663,15 @@ def export_resume(payload: ExportRequest, db: Session = Depends(get_db)) -> Resp
     try:
         if fmt == "pdf":
             data = service.render_pdf(
-                payload.job_id, payload.block_ids, payload.template, payload.resume_version
+                payload.job_id, payload.block_ids, payload.template,
+                payload.resume_version, payload.tailored,
             )
             media_type = "application/pdf"
             ext = "pdf"
         else:
             data = service.render_docx(
-                payload.job_id, payload.block_ids, payload.template, payload.resume_version
+                payload.job_id, payload.block_ids, payload.template,
+                payload.resume_version, payload.tailored,
             )
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ext = "docx"

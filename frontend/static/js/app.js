@@ -1626,6 +1626,7 @@ async function downloadResumeAs(format) {
     }
 
     const template = document.getElementById('template-selector')?.value || 'classic';
+    const tailored = document.getElementById('tailored-export-toggle')?.checked ?? true;
 
     try {
         const response = await fetch(`${API_BASE}/export`, {
@@ -1637,6 +1638,7 @@ async function downloadResumeAs(format) {
                 template: template,
                 format: format,
                 resume_version: lastTailorVersion,
+                tailored: tailored,
             })
         });
 
@@ -1651,7 +1653,8 @@ async function downloadResumeAs(format) {
         const a = document.createElement('a');
         a.href = url;
         const ext = format === 'pdf' ? 'pdf' : 'docx';
-        a.download = `resume_${lastTailorVersion}.${ext}`;
+        const suffix = tailored ? '_tailored' : '';
+        a.download = `resume_${lastTailorVersion}${suffix}.${ext}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

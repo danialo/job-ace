@@ -601,6 +601,54 @@ Include exactly one coverage entry for every requirement listed above."""
             "model_used": self.model,
         }
 
+    def rewrite_blocks_for_job(self, jd: Dict, blocks: List[Dict]) -> Dict[int, str]:
+        """Rewrite resume blocks to mirror a job's language using ONLY facts already
+        present in each block. Returns {block_id: rewritten_text}. Never invents content;
+        a downstream compliance check still gates the result before it is exported."""
+        job = {k: jd.get(k) for k in ("title", "company", "must_haves", "nice_to_haves")}
+        blocks_json = json.dumps(
+            [{"id": b["id"], "category": b.get("category"), "text": b["text"]} for b in blocks],
+            ensure_ascii=False,
+            indent=2,
+        )
+        prompt = f"""You are ALIGNING a resume to a specific job WITHOUT fabricating anything.
+
+JOB: {json.dumps(job, ensure_ascii=False)}
+
+RESUME BLOCKS (JSON):
+{blocks_json}
+
+ALIGN (do not mirror): reframe each block to surface and lead with the candidate's genuinely
+relevant experience for this role, expressed in the candidate's OWN honest words. Do NOT copy
+or echo the job posting's wording, and do NOT claim skills, qualifications, or experience the
+block does not already demonstrate. Use ONLY facts already present in that block - you may
+reorder, tighten, and clarify, but add nothing new (no skills, tools, employers, titles,
+dates, certifications, degrees, or experiences). It is better to leave a block unchanged than
+to stretch it. Preserve any leading title/company/date line and the structure (header then
+bullets).
+
+Return ONLY this JSON: {{"blocks": [{{"id": <id>, "text": "<rewritten text>"}}]}}"""
+
+        kwargs = {"model": self.model, "messages": [{"role": "user", "content": prompt}]}
+        if not self.is_reasoning_model:
+            kwargs["temperature"] = 0.3
+            kwargs["response_format"] = {"type": "json_object"}
+        raw = self.client.chat.completions.create(**kwargs).choices[0].message.content or ""
+
+        overrides: Dict[int, str] = {}
+        valid_ids = {b["id"] for b in blocks}
+        try:
+            m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
+            data = json.loads(m.group(1) if m else raw)
+            for item in data.get("blocks", []):
+                bid = item.get("id")
+                txt = (item.get("text") or "").strip()
+                if bid in valid_ids and txt:
+                    overrides[int(bid)] = txt
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            logger.warning("rewrite_blocks_for_job: JSON parse failed; no overrides")
+        return overrides
+
     def check_compliance(
         self, resume_text: str, source_blocks: List[Dict], job_context: Dict | None = None
     ) -> ComplianceCheck:

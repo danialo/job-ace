@@ -28,6 +28,7 @@ from backend.models.resume_document import (
     ResumeDocument,
     SkillsContent,
 )
+from backend.models import models
 from backend.services.resume_normalizer import ResumeNormalizer
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "resume"
@@ -130,11 +131,12 @@ class ExportService:
         block_ids: List[int],
         template: str = "classic",
         version: str = "v1",
+        tailored: bool = False,
     ) -> bytes:
         """Render resume blocks as a PDF via HTML+WeasyPrint."""
         import weasyprint
 
-        doc = self._build_document(block_ids)
+        doc = self._build_document(block_ids, job_id, tailored)
         render_data = _doc_to_template_data(doc)
 
         template_dir = TEMPLATE_DIR / template
@@ -157,9 +159,10 @@ class ExportService:
         block_ids: List[int],
         template: str = "classic",
         version: str = "v1",
+        tailored: bool = False,
     ) -> bytes:
         """Build a DOCX resume programmatically with python-docx."""
-        resume = self._build_document(block_ids)
+        resume = self._build_document(block_ids, job_id, tailored)
         doc = Document()
 
         # Default font
@@ -231,7 +234,26 @@ class ExportService:
         doc.save(buf)
         return buf.getvalue()
 
-    def _build_document(self, block_ids: List[int]) -> ResumeDocument:
-        """Normalize blocks into a ResumeDocument."""
+    def _build_document(
+        self, block_ids: List[int], job_id: int | None = None, tailored: bool = False
+    ) -> ResumeDocument:
+        """Normalize blocks into a ResumeDocument, optionally applying the per-job
+        tailored block text produced by the tailor step (base blocks stay untouched)."""
+        overrides: Dict[int, str] = {}
+        if tailored and job_id:
+            overrides = self._load_tailored_overrides(job_id)
         normalizer = ResumeNormalizer(self.db)
-        return normalizer.normalize(block_ids)
+        return normalizer.normalize(block_ids, text_overrides=overrides)
+
+    def _load_tailored_overrides(self, job_id: int) -> Dict[int, str]:
+        job = self.db.get(models.JobPosting, job_id)
+        if not job or not job.jd_json_path:
+            return {}
+        path = Path(job.jd_json_path).parent / "tailored_blocks.json"
+        if not path.exists():
+            return {}
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            return {int(k): v for k, v in raw.items() if v}
+        except (json.JSONDecodeError, ValueError, OSError):
+            return {}

@@ -189,6 +189,10 @@
                     <select id="template-selector" class="form-select-inline">
                         <option value="classic">Classic</option>
                     </select>
+                    <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem;" title="Rewrite the summary &amp; experience to align with this job (honest, fabrication-checked). Skills, education, and contact stay as written.">
+                        <input type="checkbox" id="tailored-export-toggle" checked>
+                        Tailored to job
+                    </label>
                     <button class="btn btn-secondary" onclick="downloadResumeAs('pdf')">Download PDF</button>
                     <button class="btn btn-secondary" onclick="downloadResumeAs('docx')">Download DOCX</button>
                     <button class="btn btn-secondary" onclick="downloadResume()">Download TXT</button>

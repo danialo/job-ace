@@ -174,6 +174,7 @@ class ExportRequest(BaseModel):
     template: str = "classic"
     format: str = "pdf"  # "pdf" or "docx"
     resume_version: str = "v1"
+    tailored: bool = False  # use the per-job tailored block text from the tailor step
 
 
 class TemplateInfo(BaseModel):
