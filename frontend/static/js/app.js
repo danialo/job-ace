@@ -42,6 +42,7 @@ function deleteCookie(name) {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     initTabs();
+    initSidebar();
     checkAPIStatus();
     initForms();
     initBlockSelector();
@@ -52,23 +53,47 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTemplates();
 });
 
-// Tab Management
+// Tab / view management (sidebar nav)
 function initTabs() {
-    const tabButtons = document.querySelectorAll('.tab-button');
+    const navItems = document.querySelectorAll('.nav-item');
     const tabContents = document.querySelectorAll('.tab-content');
 
-    tabButtons.forEach(button => {
+    navItems.forEach(button => {
         button.addEventListener('click', () => {
             const tabName = button.getAttribute('data-tab');
 
             // Update active states
-            tabButtons.forEach(btn => btn.classList.remove('active'));
+            navItems.forEach(btn => btn.classList.remove('active'));
             tabContents.forEach(content => content.classList.remove('active'));
 
             button.classList.add('active');
             document.getElementById(tabName).classList.add('active');
+
+            // Collapse the drawer after picking a view on mobile
+            closeSidebar();
         });
     });
+}
+
+// Mobile sidebar drawer toggle
+function initSidebar() {
+    const toggle = document.getElementById('nav-toggle');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (!toggle) return;
+
+    toggle.addEventListener('click', () => {
+        const sidebar = document.getElementById('sidebar');
+        const open = sidebar.classList.toggle('open');
+        if (backdrop) backdrop.classList.toggle('open', open);
+    });
+    if (backdrop) backdrop.addEventListener('click', closeSidebar);
+}
+
+function closeSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (sidebar) sidebar.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('open');
 }
 
 // API Status Check
