@@ -1083,45 +1083,20 @@ function toggleBlockSelection(blockId) {
     updateReassembledView();
 }
 
-// Update reassembled view with ONLY selected blocks
+// Update reassembled view — continuous text of ONLY the included sections.
+// Removal is done by unchecking "Include in resume" on a section (no per-card
+// chrome — this is a clean preview of the assembled resume).
 function updateReassembledView() {
     const reassembledEl = document.getElementById('reassembled-resume-text');
     if (!reassembledEl) return;
 
-    // Only show blocks that are selected, in the order they appear in selectedBlockIds
     const selectedBlocks = selectedBlockIds
         .map(id => blocks.find(b => b.id === id))
-        .filter(b => b); // Remove any undefined entries
+        .filter(b => b); // drop any stale ids
 
     fullResumeText = selectedBlocks.map(b => b.text).join('\n\n');
-
-    if (selectedBlocks.length === 0) {
-        reassembledEl.innerHTML = '<p class="text-muted">(No blocks selected)</p>';
-        return;
-    }
-
-    reassembledEl.innerHTML = selectedBlocks.map(b => `
-        <div class="reassembled-section" data-block-id="${b.id}">
-            <button class="reassembled-remove" onclick="removeFromReassembled(${b.id})" title="Remove this section from the resume">✕</button>
-            <div class="reassembled-section-cat">${esc(b.category || 'Section')}</div>
-            <div class="reassembled-section-text">${esc(b.text)}</div>
-        </div>
-    `).join('');
-}
-
-// Drop a single section from the reassembled resume (keeps the block in the DB;
-// just removes it from this resume's selection). Syncs the editor checkbox.
-function removeFromReassembled(blockId) {
-    const i = selectedBlockIds.indexOf(blockId);
-    if (i !== -1) selectedBlockIds.splice(i, 1);
-    // Sync both checkbox sets so the section is also excluded from tailor/export:
-    //   select-block-<id> drives the editor + reassembled view,
-    //   block-<id> is read by the tailor/export submit.
-    const editorCb = document.getElementById(`select-block-${blockId}`);
-    if (editorCb) editorCb.checked = false;
-    const exportCb = document.getElementById(`block-${blockId}`);
-    if (exportCb) exportCb.checked = false;
-    updateReassembledView();
+    reassembledEl.textContent =
+        fullResumeText || '(No sections included yet — tick "Include in resume" on the sections you want.)';
 }
 
 function showFullResumeEditor() {
@@ -1187,8 +1162,11 @@ async function renderResumeBlocksEditor() {
     // Clear existing content
     container.innerHTML = '';
 
-    // Auto-select all blocks by default
-    selectedBlockIds = blocks.map(b => b.id);
+    // Start with NOTHING selected — the reassembled pane stays empty until the
+    // user explicitly includes sections. (Previously this auto-selected all
+    // blocks while the pane showed nothing, so the first Save dumped the whole
+    // resume into the pane.)
+    selectedBlockIds = [];
 
     // Render each category section
     for (const [category, categoryBlocks] of Object.entries(blocksByCategory)) {
@@ -1227,7 +1205,7 @@ async function renderResumeBlocksEditor() {
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
                     <div class="block-editor-selection">
-                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" checked />
+                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" />
                         <label for="select-block-${block.id}">Include in resume</label>
                     </div>
                     <div class="block-editor-actions">
@@ -1325,7 +1303,8 @@ async function saveBlockContent(blockId) {
                 }
             }
 
-            // Update the reassembled view if comparison is visible
+            // Refresh the reassembled preview. Safe now that selection is
+            // opt-in (only the sections the user included appear).
             updateReassembledView();
 
             // Show success feedback
