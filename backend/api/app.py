@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import json
 import tempfile
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, UploadFile, status
@@ -150,6 +151,42 @@ def list_jobs(db: Session = Depends(get_db)) -> list[dict]:
         }
         for job in jobs
     ]
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """Return full captured detail for a single job posting (review surface)."""
+    job = db.get(models.JobPosting, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    def _parse_list(raw: str | None) -> list:
+        if not raw:
+            return []
+        try:
+            value = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        return value if isinstance(value, list) else []
+
+    return {
+        "id": job.id,
+        "title": job.title,
+        "company": job.company.name if job.company else "Unknown",
+        "location": job.location,
+        "url": job.url,
+        "apply_url": job.apply_url,
+        "employment_type": job.employment_type,
+        "seniority": job.seniority,
+        "salary_min": job.salary_min,
+        "salary_max": job.salary_max,
+        "deadline": job.deadline,
+        "status": job.status,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "must_haves": _parse_list(job.must_haves_json),
+        "nice_to_haves": _parse_list(job.nice_to_haves_json),
+        "screening_questions": _parse_list(job.screening_questions_json),
+    }
 
 
 @app.get("/blocks")
