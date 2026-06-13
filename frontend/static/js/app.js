@@ -1060,8 +1060,8 @@ function showSideBySideComparison() {
     // Set original text
     originalText.textContent = originalResumeText || '(Original text not available)';
 
-    // Set reassembled text from blocks
-    reassembledText.textContent = fullResumeText || '(No blocks to display)';
+    // Render reassembled view as removable sections
+    updateReassembledView();
 
     // Show the section
     comparisonSection.classList.remove('hidden');
@@ -1085,8 +1085,8 @@ function toggleBlockSelection(blockId) {
 
 // Update reassembled view with ONLY selected blocks
 function updateReassembledView() {
-    const reassembledText = document.getElementById('reassembled-resume-text');
-    if (!reassembledText) return;
+    const reassembledEl = document.getElementById('reassembled-resume-text');
+    if (!reassembledEl) return;
 
     // Only show blocks that are selected, in the order they appear in selectedBlockIds
     const selectedBlocks = selectedBlockIds
@@ -1094,7 +1094,34 @@ function updateReassembledView() {
         .filter(b => b); // Remove any undefined entries
 
     fullResumeText = selectedBlocks.map(b => b.text).join('\n\n');
-    reassembledText.textContent = fullResumeText || '(No blocks selected)';
+
+    if (selectedBlocks.length === 0) {
+        reassembledEl.innerHTML = '<p class="text-muted">(No blocks selected)</p>';
+        return;
+    }
+
+    reassembledEl.innerHTML = selectedBlocks.map(b => `
+        <div class="reassembled-section" data-block-id="${b.id}">
+            <button class="reassembled-remove" onclick="removeFromReassembled(${b.id})" title="Remove this section from the resume">✕</button>
+            <div class="reassembled-section-cat">${esc(b.category || 'Section')}</div>
+            <div class="reassembled-section-text">${esc(b.text)}</div>
+        </div>
+    `).join('');
+}
+
+// Drop a single section from the reassembled resume (keeps the block in the DB;
+// just removes it from this resume's selection). Syncs the editor checkbox.
+function removeFromReassembled(blockId) {
+    const i = selectedBlockIds.indexOf(blockId);
+    if (i !== -1) selectedBlockIds.splice(i, 1);
+    // Sync both checkbox sets so the section is also excluded from tailor/export:
+    //   select-block-<id> drives the editor + reassembled view,
+    //   block-<id> is read by the tailor/export submit.
+    const editorCb = document.getElementById(`select-block-${blockId}`);
+    if (editorCb) editorCb.checked = false;
+    const exportCb = document.getElementById(`block-${blockId}`);
+    if (exportCb) exportCb.checked = false;
+    updateReassembledView();
 }
 
 function showFullResumeEditor() {
