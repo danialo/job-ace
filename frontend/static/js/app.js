@@ -4,9 +4,12 @@ const API_BASE = window.location.origin;
 // HTML escape helper to prevent XSS
 function esc(str) {
     if (str == null) return '';
-    const div = document.createElement('div');
-    div.appendChild(document.createTextNode(String(str)));
-    return div.innerHTML;
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // State
@@ -93,6 +96,8 @@ async function checkAPIStatus() {
 function initForms() {
     // Intake Form
     document.getElementById('intake-form').addEventListener('submit', handleIntake);
+    const captureTextBtn = document.getElementById('capture-text-btn');
+    if (captureTextBtn) captureTextBtn.addEventListener('click', handleIntakeText);
 
     // Tailor Form
     document.getElementById('tailor-form').addEventListener('submit', handleTailor);
@@ -242,37 +247,12 @@ async function handleTailor(e) {
             const totalKeywords = coverageCount + uncoveredCount;
             const coveragePercent = totalKeywords > 0 ? (coverageCount / totalKeywords * 100).toFixed(1) : 0;
 
-            // Build structured tailor results display
-            const uncoveredSection = data.uncovered.length > 0
-                ? `<div class="tailor-uncovered">
-                       <h4>⚠️ Uncovered Keywords (${data.uncovered.length})</h4>
-                       <div class="uncovered-pills">
-                           ${data.uncovered.map(kw => `<span class="uncovered-pill">${esc(kw)}</span>`).join('')}
-                       </div>
-                   </div>`
-                : '';
-
-            resultEl.innerHTML = `
-                <div class="tailor-results">
-                    <div class="tailor-summary">
-                        <div class="tailor-stat">
-                            <span class="stat-value">${esc(coveragePercent)}%</span>
-                            <span class="stat-label">Coverage</span>
-                        </div>
-                        <div class="tailor-stat">
-                            <span class="stat-value">${esc(coverageCount)}/${esc(totalKeywords)}</span>
-                            <span class="stat-label">Keywords</span>
-                        </div>
-                        <div class="tailor-stat ${data.compliance_pass ? 'stat-pass' : 'stat-fail'}">
-                            <span class="stat-value">${data.compliance_pass ? '✅' : '❌'}</span>
-                            <span class="stat-label">Compliance</span>
-                        </div>
-                    </div>
-                    ${uncoveredSection}
-                </div>
-            `;
-            resultEl.className = 'result-box tailor-result-box';
-            resultEl.classList.remove('hidden');
+            showResult(resultEl, 'success', `
+                <strong>Resume Tailored Successfully!</strong>
+                <br>Coverage: ${esc(coveragePercent)}% (${esc(coverageCount)} of ${esc(totalKeywords)} keywords covered)
+                <br>Compliance: ${data.compliance_pass ? '✅ Pass' : '❌ Fail'}
+                ${data.uncovered.length > 0 ? `<br><strong>Uncovered Keywords:</strong> ${esc(data.uncovered.join(', '))}` : ''}
+            `);
 
             // Store tailor params for export
             lastTailorJobId = jobId;
@@ -706,6 +686,40 @@ async function handleSubmit(e) {
     }
 }
 
+// Capture a job from pasted description text (for sites that block scraping)
+async function handleIntakeText() {
+    const text = document.getElementById('job-text').value.trim();
+    const url = document.getElementById('job-text-url').value.trim();
+    const resultEl = document.getElementById('intake-text-result');
+    const btn = document.getElementById('capture-text-btn');
+    if (!text) { showResult(resultEl, 'error', 'Paste a job description first.'); return; }
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.innerHTML = '<span class="spinner"></span> Capturing...';
+    try {
+        const response = await fetch(`${API_BASE}/intake-text`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, url: url || null })
+        });
+        const data = await response.json();
+        if (response.ok) {
+            showResult(resultEl, 'success', `<strong>Job Captured Successfully!</strong><br>Job ID: ${esc(data.job_id)}`);
+            document.getElementById('job-text').value = '';
+            document.getElementById('job-text-url').value = '';
+            loadJobs();
+        } else {
+            const errorMsg = data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : 'Failed to capture job';
+            showResult(resultEl, 'error', `Error: ${esc(errorMsg)}`);
+        }
+    } catch (error) {
+        showResult(resultEl, 'error', `Network error: ${esc(error.message)}`);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+    }
+}
+
 // Load Jobs
 async function loadJobs() {
     try {
@@ -727,270 +741,71 @@ function displayJobs() {
         return;
     }
 
-    jobsList.innerHTML = jobs.map(job => `
-        <div class="job-card" data-job-id="${esc(job.id)}">
-            <div class="job-card-header" onclick="toggleJobCard(${job.id})">
-                <div class="job-card-summary">
-                    <h4>${esc(job.title || 'Untitled Job')}</h4>
-                    <div class="job-meta">
-                        <span>🏢 ${esc(job.company)}</span>
-                        <span>📍 ${esc(job.location || 'N/A')}</span>
-                        <span>#${esc(job.id)}</span>
-                    </div>
-                </div>
-                <div class="job-card-expand">▼</div>
-            </div>
-            <div class="job-card-detail" id="job-detail-${job.id}">
-                <div class="loading-detail">Loading details...</div>
-            </div>
+    jobsList.innerHTML = jobs.map(job => {
+        const isLink = /^https?:\/\//i.test(job.url || '');
+        const source = isLink
+            ? `<p><strong>Source:</strong> <a href="${esc(job.url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
+            : `<p><strong>Source:</strong> <span class="text-muted">Pasted text (no URL)</span></p>`;
+        return `
+        <div class="job-item">
+            <h4>${esc(job.title || 'Untitled Job')}</h4>
+            <p><strong>Company:</strong> ${esc(job.company)}</p>
+            <p><strong>Location:</strong> ${esc(job.location || 'N/A')}</p>
+            <p><strong>Job ID:</strong> ${esc(job.id)}</p>
+            ${source}
+            <button type="button" class="btn btn-secondary" onclick="reviewJob(${esc(job.id)})">Review capture</button>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
-// Track currently expanded job
-let expandedJobId = null;
+async function reviewJob(jobId) {
+    const modal = document.getElementById('job-review-modal');
+    const titleEl = document.getElementById('job-review-title');
+    const body = document.getElementById('job-review-body');
+    titleEl.textContent = 'Captured Job';
+    body.innerHTML = '<p class="text-muted">Loading…</p>';
+    modal.classList.remove('hidden');
 
-async function toggleJobCard(jobId) {
-    const card = document.querySelector(`.job-card[data-job-id="${jobId}"]`);
-    const detailEl = document.getElementById(`job-detail-${jobId}`);
+    const renderList = (items) => (items && items.length)
+        ? `<ul class="job-review-list">${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`
+        : '<p class="text-muted">None captured.</p>';
 
-    // Close previously expanded card
-    if (expandedJobId && expandedJobId !== jobId) {
-        const prevCard = document.querySelector(`.job-card[data-job-id="${expandedJobId}"]`);
-        if (prevCard) prevCard.classList.remove('expanded');
-    }
-
-    // Toggle current card
-    if (card.classList.contains('expanded')) {
-        card.classList.remove('expanded');
-        expandedJobId = null;
-        return;
-    }
-
-    card.classList.add('expanded');
-    expandedJobId = jobId;
-
-    // Load detail if not already loaded
-    if (detailEl.querySelector('.loading-detail')) {
-        await loadJobDetail(jobId, detailEl);
-    }
-}
-
-async function loadJobDetail(jobId, detailEl) {
     try {
         const response = await fetch(`${API_BASE}/jobs/${jobId}`);
         if (!response.ok) {
-            detailEl.innerHTML = '<p class="text-muted">Failed to load details.</p>';
+            body.innerHTML = `<p style="color:#c0392b;">Could not load job (status ${esc(response.status)}).</p>`;
             return;
         }
+        const job = await response.json();
+        titleEl.textContent = job.title || 'Captured Job';
 
-        const data = await response.json();
-        detailEl.innerHTML = renderJobDetail(data);
+        const isLink = /^https?:\/\//i.test(job.url || '');
+        const meta = [
+            ['Company', job.company],
+            ['Location', job.location],
+            ['Employment type', job.employment_type],
+            ['Seniority', job.seniority],
+            ['Status', job.status],
+        ].filter(([, v]) => v)
+         .map(([k, v]) => `<p><strong>${k}:</strong> ${esc(v)}</p>`).join('');
+
+        body.innerHTML = `
+            ${meta}
+            ${isLink
+                ? `<p><strong>Source:</strong> <a href="${esc(job.url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
+                : `<p><strong>Source:</strong> <span class="text-muted">Pasted text (no URL)</span></p>`}
+            <h4>Must-haves</h4>${renderList(job.must_haves)}
+            <h4>Nice-to-haves</h4>${renderList(job.nice_to_haves)}
+            <h4>Screening questions</h4>${renderList(job.screening_questions)}
+        `;
     } catch (error) {
-        console.error('Failed to load job detail:', error);
-        detailEl.innerHTML = '<p class="text-muted">Error loading details.</p>';
+        body.innerHTML = `<p style="color:#c0392b;">Network error: ${esc(error.message)}</p>`;
     }
 }
 
-function renderJobDetail(data) {
-    const { job, extracted, provenance, quality } = data;
-
-    // Quality banner
-    const qualityBanner = `
-        <div class="quality-banner">
-            <span class="quality-tier ${quality.quality_tier}">${quality.quality_tier}</span>
-            <span class="quality-item ${quality.must_haves_count > 0 ? 'found' : 'missing'}">
-                ${quality.must_haves_count > 0 ? '✓' : '○'} Must-haves: ${quality.must_haves_count}
-            </span>
-            <span class="quality-item ${quality.nice_to_haves_count > 0 ? 'found' : 'missing'}">
-                ${quality.nice_to_haves_count > 0 ? '✓' : '○'} Nice-to-haves: ${quality.nice_to_haves_count}
-            </span>
-            <span class="quality-item ${quality.screening_questions_count > 0 ? 'found' : 'missing'}">
-                ${quality.screening_questions_count > 0 ? '✓' : '○'} Questions: ${quality.screening_questions_count}
-            </span>
-            <span class="quality-item ${quality.has_salary ? 'found' : 'missing'}">
-                ${quality.has_salary ? '✓' : '○'} Salary
-            </span>
-        </div>
-    `;
-
-    // Decision-critical fields
-    const formatSalary = () => {
-        if (job.salary_min && job.salary_max) {
-            return `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}`;
-        } else if (job.salary_min) {
-            return `$${job.salary_min.toLocaleString()}+`;
-        } else if (job.salary_max) {
-            return `Up to $${job.salary_max.toLocaleString()}`;
-        }
-        return null;
-    };
-
-    const decisionCritical = `
-        <div class="decision-critical">
-            <div class="decision-item">
-                <span class="label">Employment Type</span>
-                <span class="value ${extracted.employment_type ? '' : 'missing'}">
-                    ${esc(extracted.employment_type) || 'Not specified'}
-                </span>
-            </div>
-            <div class="decision-item">
-                <span class="label">Seniority</span>
-                <span class="value ${extracted.seniority ? '' : 'missing'}">
-                    ${esc(extracted.seniority) || 'Not specified'}
-                </span>
-            </div>
-            <div class="decision-item">
-                <span class="label">Salary</span>
-                <span class="value ${formatSalary() ? '' : 'missing'}">
-                    ${formatSalary() || 'Not specified'}
-                </span>
-            </div>
-            <div class="decision-item">
-                <span class="label">Deadline</span>
-                <span class="value ${extracted.deadline ? '' : 'missing'}">
-                    ${esc(extracted.deadline) || 'Not specified'}
-                </span>
-            </div>
-        </div>
-    `;
-
-    // Requirements sections
-    const mustHavesSection = `
-        <div class="requirements-section">
-            <h5>Must-Haves <span class="count">${extracted.must_haves.length}</span></h5>
-            ${extracted.must_haves.length > 0
-                ? `<ul class="requirements-list">${extracted.must_haves.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`
-                : '<p class="requirements-empty">No required qualifications extracted</p>'
-            }
-        </div>
-    `;
-
-    const niceToHavesSection = `
-        <div class="requirements-section">
-            <h5>Nice-to-Haves <span class="count">${extracted.nice_to_haves.length}</span></h5>
-            ${extracted.nice_to_haves.length > 0
-                ? `<ul class="requirements-list">${extracted.nice_to_haves.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`
-                : '<p class="requirements-empty">No preferred qualifications extracted</p>'
-            }
-        </div>
-    `;
-
-    const screeningSection = extracted.screening_questions.length > 0 ? `
-        <div class="requirements-section">
-            <h5>Screening Questions <span class="count">${extracted.screening_questions.length}</span></h5>
-            <ul class="requirements-list">${extracted.screening_questions.map(q => `<li>${esc(q)}</li>`).join('')}</ul>
-        </div>
-    ` : '';
-
-    // Debug/provenance section
-    const debugSection = `
-        <details class="debug-section">
-            <summary>Provenance & Debug Info</summary>
-            <div class="debug-content">
-                <dl>
-                    <dt>Source URL</dt>
-                    <dd><a href="${esc(provenance.source_url)}" target="_blank">${esc(provenance.source_url)}</a></dd>
-                    <dt>Apply URL</dt>
-                    <dd>${provenance.apply_url ? `<a href="${esc(provenance.apply_url)}" target="_blank">${esc(provenance.apply_url)}</a>` : 'Same as source'}</dd>
-                    <dt>Portal Hint</dt>
-                    <dd>${esc(provenance.portal_hint) || 'Unknown'}</dd>
-                    <dt>Captured At</dt>
-                    <dd>${provenance.captured_at ? new Date(provenance.captured_at).toLocaleString() : 'Unknown'}</dd>
-                    <dt>Artifact Dir</dt>
-                    <dd>${esc(provenance.artifact_dir) || 'N/A'}</dd>
-                    <dt>Raw Text</dt>
-                    <dd>${provenance.raw_text_available ? `${provenance.raw_text_chars.toLocaleString()} chars` : 'Not available'}</dd>
-                </dl>
-                ${provenance.raw_text_available ? `
-                    <div class="raw-text-toggle">
-                        <button onclick="toggleRawText(${job.id}, this)">Show Raw Text</button>
-                    </div>
-                    <div class="raw-text-content" id="raw-text-${job.id}" style="display: none;"></div>
-                ` : ''}
-            </div>
-        </details>
-    `;
-
-    // Actions
-    const actions = `
-        <div class="job-card-actions">
-            <button onclick="copyRequirements(${job.id})">📋 Copy Requirements</button>
-            <button onclick="window.open('${esc(provenance.apply_url || provenance.source_url)}', '_blank')">🔗 Open Posting</button>
-        </div>
-    `;
-
-    return qualityBanner + decisionCritical + mustHavesSection + niceToHavesSection + screeningSection + debugSection + actions;
-}
-
-async function toggleRawText(jobId, button) {
-    const contentEl = document.getElementById(`raw-text-${jobId}`);
-    if (contentEl.style.display === 'none') {
-        // Load and show
-        if (!contentEl.dataset.loaded) {
-            button.textContent = 'Loading...';
-            try {
-                const response = await fetch(`${API_BASE}/jobs/${jobId}/raw-text?max_chars=10000`);
-                if (response.ok) {
-                    const data = await response.json();
-                    contentEl.textContent = data.text;
-                    if (data.truncated) {
-                        contentEl.textContent += `\n\n... (truncated, ${data.total_chars.toLocaleString()} total chars)`;
-                    }
-                    contentEl.dataset.loaded = 'true';
-                } else {
-                    contentEl.textContent = 'Failed to load raw text.';
-                }
-            } catch (error) {
-                contentEl.textContent = 'Error loading raw text.';
-            }
-        }
-        contentEl.style.display = 'block';
-        button.textContent = 'Hide Raw Text';
-    } else {
-        contentEl.style.display = 'none';
-        button.textContent = 'Show Raw Text';
-    }
-}
-
-// Store loaded job details for copy function
-const jobDetailsCache = {};
-
-async function copyRequirements(jobId) {
-    let data = jobDetailsCache[jobId];
-    if (!data) {
-        try {
-            const response = await fetch(`${API_BASE}/jobs/${jobId}`);
-            if (response.ok) {
-                data = await response.json();
-                jobDetailsCache[jobId] = data;
-            }
-        } catch (error) {
-            console.error('Failed to fetch job for copy:', error);
-            return;
-        }
-    }
-
-    if (!data) return;
-
-    const { extracted } = data;
-    let text = '';
-
-    if (extracted.must_haves.length > 0) {
-        text += 'MUST-HAVES:\n' + extracted.must_haves.map(r => `• ${r}`).join('\n') + '\n\n';
-    }
-    if (extracted.nice_to_haves.length > 0) {
-        text += 'NICE-TO-HAVES:\n' + extracted.nice_to_haves.map(r => `• ${r}`).join('\n');
-    }
-
-    if (text) {
-        await navigator.clipboard.writeText(text.trim());
-        // Brief visual feedback
-        const btn = event.target;
-        const originalText = btn.textContent;
-        btn.textContent = '✓ Copied!';
-        setTimeout(() => btn.textContent = originalText, 1500);
-    }
+function closeJobReviewModal() {
+    document.getElementById('job-review-modal').classList.add('hidden');
 }
 
 // Load Blocks - Only if cookie indicates user has uploaded resume
@@ -1032,8 +847,42 @@ async function loadBlocks() {
 }
 
 function displayBlocks() {
-    // Update the block selector (main UI element for blocks)
+    // Update the blocks list display (element may not exist in current layout)
+    const blocksList = document.getElementById('blocks-list');
+    if (blocksList) {
+        if (blocks.length === 0) {
+            blocksList.innerHTML = '<p class="text-muted">Upload a resume above or use CLI: <code>job-ace load-blocks &lt;file.yaml&gt;</code></p>';
+        } else {
+            blocksList.innerHTML = blocks.map(block => `
+                <div class="block-item">
+                    <h4>Block ${esc(block.id)}: ${esc(block.category)}</h4>
+                    <p><strong>Tags:</strong> ${esc(block.tags.join(', '))}</p>
+                    <p>${esc(block.text)}</p>
+                </div>
+            `).join('');
+        }
+    }
+
+    // Update the block selector
     renderBlockSelector();
+}
+
+// Canonical resume section order for displaying blocks. Categories not listed
+// fall to the end, alphabetically among themselves.
+const RESUME_CATEGORY_ORDER = [
+    'contact', 'summary', 'experience', 'education',
+    'skills', 'projects', 'certifications', 'awards', 'other',
+];
+
+function orderedCategories(categories) {
+    const rank = (c) => {
+        const i = RESUME_CATEGORY_ORDER.indexOf((c || '').toLowerCase());
+        return i === -1 ? RESUME_CATEGORY_ORDER.length : i;
+    };
+    return [...categories].sort((a, b) => {
+        const d = rank(a) - rank(b);
+        return d !== 0 ? d : a.localeCompare(b);
+    });
 }
 
 function renderBlockSelector(autoSelectIds = []) {
@@ -1056,7 +905,7 @@ function renderBlockSelector(autoSelectIds = []) {
 
     // Build HTML for each category
     let html = '';
-    Object.keys(grouped).sort().forEach(category => {
+    orderedCategories(Object.keys(grouped)).forEach(category => {
         html += `<div class="block-category">`;
         html += `<div class="block-category-header">${category}</div>`;
 
@@ -1288,8 +1137,8 @@ function showSideBySideComparison() {
     // Set original text
     originalText.textContent = originalResumeText || '(Original text not available)';
 
-    // Set reassembled text from blocks
-    reassembledText.textContent = fullResumeText || '(No blocks to display)';
+    // Render reassembled view as removable sections
+    updateReassembledView();
 
     // Show the section
     comparisonSection.classList.remove('hidden');
@@ -1311,18 +1160,20 @@ function toggleBlockSelection(blockId) {
     updateReassembledView();
 }
 
-// Update reassembled view with ONLY selected blocks
+// Update reassembled view — continuous text of ONLY the included sections.
+// Removal is done by unchecking "Include in resume" on a section (no per-card
+// chrome — this is a clean preview of the assembled resume).
 function updateReassembledView() {
-    const reassembledText = document.getElementById('reassembled-resume-text');
-    if (!reassembledText) return;
+    const reassembledEl = document.getElementById('reassembled-resume-text');
+    if (!reassembledEl) return;
 
-    // Only show blocks that are selected, in the order they appear in selectedBlockIds
     const selectedBlocks = selectedBlockIds
         .map(id => blocks.find(b => b.id === id))
-        .filter(b => b); // Remove any undefined entries
+        .filter(b => b); // drop any stale ids
 
     fullResumeText = selectedBlocks.map(b => b.text).join('\n\n');
-    reassembledText.textContent = fullResumeText || '(No blocks selected)';
+    reassembledEl.textContent =
+        fullResumeText || '(No sections included yet — tick "Include in resume" on the sections you want.)';
 }
 
 function showFullResumeEditor() {
@@ -1388,13 +1239,11 @@ async function renderResumeBlocksEditor() {
     // Clear existing content
     container.innerHTML = '';
 
-    // Destroy existing Quill instances to prevent double-toolbar on re-render
-    Object.keys(quillEditors).forEach(id => {
-        delete quillEditors[id];
-    });
-
-    // Auto-select all blocks by default
-    selectedBlockIds = blocks.map(b => b.id);
+    // Start with NOTHING selected — the reassembled pane stays empty until the
+    // user explicitly includes sections. (Previously this auto-selected all
+    // blocks while the pane showed nothing, so the first Save dumped the whole
+    // resume into the pane.)
+    selectedBlockIds = [];
 
     // Render each category section
     for (const [category, categoryBlocks] of Object.entries(blocksByCategory)) {
@@ -1433,7 +1282,7 @@ async function renderResumeBlocksEditor() {
             blockEditor.innerHTML = `
                 <div class="block-editor-header">
                     <div class="block-editor-selection">
-                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" checked />
+                        <input type="checkbox" id="select-block-${block.id}" onchange="toggleBlockSelection(${block.id})" />
                         <label for="select-block-${block.id}">Include in resume</label>
                     </div>
                     <div class="block-editor-actions">
@@ -1451,6 +1300,8 @@ async function renderResumeBlocksEditor() {
             // Initialize Quill editor for this block
             setTimeout(() => {
                 const editorEl = document.getElementById(`editor-${block.id}`);
+                // Guard against duplicate toolbars: skip if Quill already initialized this
+                // element (happens when the editor re-renders before this deferred init runs).
                 if (editorEl && !editorEl.classList.contains('ql-container')) {
                     const quill = new Quill(`#editor-${block.id}`, {
                         theme: 'snow',
@@ -1529,7 +1380,8 @@ async function saveBlockContent(blockId) {
                 }
             }
 
-            // Update the reassembled view if comparison is visible
+            // Refresh the reassembled preview. Safe now that selection is
+            // opt-in (only the sections the user included appear).
             updateReassembledView();
 
             // Show success feedback
@@ -1857,6 +1709,7 @@ async function downloadResumeAs(format) {
     }
 
     const template = document.getElementById('template-selector')?.value || 'classic';
+    const tailored = document.getElementById('tailored-export-toggle')?.checked ?? true;
 
     try {
         const response = await fetch(`${API_BASE}/export`, {
@@ -1868,6 +1721,7 @@ async function downloadResumeAs(format) {
                 template: template,
                 format: format,
                 resume_version: lastTailorVersion,
+                tailored: tailored,
             })
         });
 
@@ -1882,7 +1736,8 @@ async function downloadResumeAs(format) {
         const a = document.createElement('a');
         a.href = url;
         const ext = format === 'pdf' ? 'pdf' : 'docx';
-        a.download = `resume_${lastTailorVersion}.${ext}`;
+        const suffix = tailored ? '_tailored' : '';
+        a.download = `resume_${lastTailorVersion}${suffix}.${ext}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

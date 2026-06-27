@@ -13,8 +13,9 @@ env/
 dist/
 build/
 
-# Database
+# Database (incl. .bak/.wiped/-wal/-shm copies — all hold real user PII)
 *.sqlite3
+*.sqlite3.*
 *.db
 
 # Artifacts

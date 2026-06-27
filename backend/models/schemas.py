@@ -17,6 +17,11 @@ class IntakeResponse(BaseModel):
     artifact_dir: Path
 
 
+class IntakeTextRequest(BaseModel):
+    text: str
+    url: str | None = None
+
+
 class TailorRequest(BaseModel):
     job_id: int
     allowed_block_ids: List[int] = Field(default_factory=list)
@@ -169,6 +174,7 @@ class ExportRequest(BaseModel):
     template: str = "classic"
     format: str = "pdf"  # "pdf" or "docx"
     resume_version: str = "v1"
+    tailored: bool = False  # use the per-job tailored block text from the tailor step
 
 
 class TemplateInfo(BaseModel):

@@ -29,6 +29,7 @@ from backend.models.resume_document import (
     ResumeDocument,
     SkillsContent,
 )
+from backend.models import models
 from backend.services.resume_normalizer import ResumeNormalizer
 
 TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "resume"
@@ -157,11 +158,12 @@ class ExportService:
         block_ids: List[int],
         template: str = "classic",
         version: str = "v1",
+        tailored: bool = False,
     ) -> bytes:
         """Render resume blocks as a PDF via HTML+WeasyPrint."""
         import weasyprint
 
-        doc = self._build_document(block_ids)
+        doc = self._build_document(block_ids, job_id, tailored)
         render_data = _doc_to_template_data(doc)
 
         template_dir = TEMPLATE_DIR / template
@@ -184,9 +186,10 @@ class ExportService:
         block_ids: List[int],
         template: str = "classic",
         version: str = "v1",
+        tailored: bool = False,
     ) -> bytes:
         """Build a DOCX resume programmatically with python-docx."""
-        resume = self._build_document(block_ids)
+        resume = self._build_document(block_ids, job_id, tailored)
         doc = Document()
 
         # Default font
@@ -323,19 +326,38 @@ class ExportService:
         self,
         block_ids: List[int],
         job_id: Optional[int] = None,
+        tailored: bool = False,
     ) -> ResumeDocument:
         """Normalize blocks into a ResumeDocument.
 
-        If job_id is provided, persists the canonical document as
+        If ``tailored`` is set (with a job_id), the per-job tailored block text
+        produced by the tailor step is applied in-memory (base blocks stay
+        untouched). If job_id is provided, the canonical document is persisted as
         derived/resume_document.json for debuggability and reproducibility.
         """
+        overrides: Dict[int, str] = {}
+        if tailored and job_id:
+            overrides = self._load_tailored_overrides(job_id)
         normalizer = ResumeNormalizer(self.db)
-        doc = normalizer.normalize(block_ids)
+        doc = normalizer.normalize(block_ids, text_overrides=overrides)
 
         if job_id is not None:
             self._persist_document(job_id, doc)
 
         return doc
+
+    def _load_tailored_overrides(self, job_id: int) -> Dict[int, str]:
+        job = self.db.get(models.JobPosting, job_id)
+        if not job or not job.jd_json_path:
+            return {}
+        path = Path(job.jd_json_path).parent / "tailored_blocks.json"
+        if not path.exists():
+            return {}
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            return {int(k): v for k, v in raw.items() if v}
+        except (json.JSONDecodeError, ValueError, OSError):
+            return {}
 
     def _persist_document(self, job_id: int, doc: ResumeDocument) -> None:
         """Persist the canonical ResumeDocument as a JSON artifact."""

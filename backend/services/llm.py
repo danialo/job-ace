@@ -99,9 +99,14 @@ class ComplianceCheck:
 
     @classmethod
     def from_dict(cls, data: Dict) -> "ComplianceCheck":
+        fabrications = data.get("fabrications", []) or []
+        # Derive pass/fail from the actual fabrications found, not the model's
+        # self-reported "ok" flag — that flag is unreliable (models return ok=false
+        # even when they report zero fabrications). No fabrications => compliant.
+        # style_changes are acceptable rewording and never count against compliance.
         return cls(
-            ok=data.get("ok", True),
-            fabrications=data.get("fabrications", []),
+            ok=len(fabrications) == 0,
+            fabrications=fabrications,
             style_changes=data.get("style_changes", []),
             confidence=data.get("confidence", 0.5),
             notes=data.get("notes", ""),
@@ -499,86 +504,151 @@ RESUME TEXT:
 
         keywords = jd.get("must_haves", []) + jd.get("nice_to_haves", [])
 
-        # Build comprehensive analysis prompt
-        prompt = f"""You are an expert resume analyst and career coach. Analyze how well this resume matches the job requirements for precision and reliability.
+        # Ask the model for STRUCTURED coverage. The previous implementation matched
+        # whole-sentence requirements against block text with a substring test, so any
+        # multi-clause requirement never matched and everything fell into "uncovered".
+        # Now the model judges each requirement on substance and returns JSON we use directly.
+        prompt = f"""You are an expert resume analyst. Assess how well a candidate's resume blocks satisfy a job's requirements.
 
-JOB POSTING:
+JOB:
 Title: {jd.get('title', 'Unknown')}
 Company: {jd.get('company', 'Unknown')}
 Location: {jd.get('location', 'Unknown')}
 
-REQUIRED QUALIFICATIONS (must_haves):
-{chr(10).join(f"- {req}" for req in jd.get('must_haves', []))}
+MUST-HAVE REQUIREMENTS:
+{chr(10).join(f"- {req}" for req in jd.get('must_haves', [])) or "- (none listed)"}
 
-PREFERRED QUALIFICATIONS (nice_to_haves):
-{chr(10).join(f"- {pref}" for pref in jd.get('nice_to_haves', []))}
+NICE-TO-HAVE REQUIREMENTS:
+{chr(10).join(f"- {pref}" for pref in jd.get('nice_to_haves', [])) or "- (none listed)"}
 
-RESUME BLOCKS AVAILABLE:
+RESUME BLOCKS (id: text):
 {resume_text}
 
-TASK:
-Perform a detailed analysis:
-1. For EACH requirement (must-have and nice-to-have), identify which resume block(s) provide evidence
-2. Rate the strength of evidence (strong/moderate/weak/missing)
-3. Identify gaps where requirements are not addressed
-4. Suggest specific improvements or additions
-5. Assess ATS keyword coverage and recommend optimizations
-6. Provide an overall match score (0-100%)
+For EACH requirement above, decide whether the resume blocks provide evidence:
+- "covered": the blocks clearly satisfy it
+- "partial": related or adjacent evidence, but not a full match
+- "missing": no supporting evidence in the blocks
 
-Be extremely thorough and precise - this directly impacts job application success."""
+Judge on substance, not exact wording (e.g. a B.S. in Psychology is a "related field"; a
+residential youth-mentor role in a treatment setting is relevant to "mental health / group
+home" experience). Do NOT credit evidence the blocks do not actually contain.
 
-        # Use appropriate API pattern based on model type
-        if self.is_reasoning_model:
-            # Reasoning models: no system message, no temperature
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-        else:
-            # Standard models: system message + temperature control
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert resume analyst helping to optimize resumes for ATS systems and hiring managers. Provide precise, actionable analysis."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.2,  # Low temperature for consistency
-            )
+Respond with ONLY this JSON object and nothing else:
+{{
+  "match_score": <integer 0-100>,
+  "summary": "<one sentence on overall fit>",
+  "coverage": [
+    {{"requirement": "<verbatim requirement>", "kind": "must|nice", "status": "covered|partial|missing", "evidence_block_ids": [<block ids>], "note": "<short justification>"}}
+  ]
+}}
+Include exactly one coverage entry for every requirement listed above."""
 
-        analysis = response.choices[0].message.content
+        kwargs = {"model": self.model, "messages": [{"role": "user", "content": prompt}]}
+        if not self.is_reasoning_model:
+            kwargs["temperature"] = 0.2
+            kwargs["response_format"] = {"type": "json_object"}
+        response = self.client.chat.completions.create(**kwargs)
+        raw = response.choices[0].message.content or ""
 
-        # Calculate coverage (keyword matching)
-        coverage = []
-        uncovered = []
-        for keyword in keywords:
-            hits = [block["id"] for block in allowed_blocks if keyword.lower() in block["text"].lower()]
-            if hits:
-                coverage.append({"keyword": keyword, "support_block_ids": hits})
-            else:
-                uncovered.append(keyword)
+        # Parse the model's structured coverage; fall back to token-overlap matching.
+        coverage, uncovered, analysis_lines = [], [], []
+        match_score, summary = None, ""
+        valid_ids = {b["id"] for b in allowed_blocks}
+        try:
+            m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
+            data = json.loads(m.group(1) if m else raw)
+            match_score = data.get("match_score")
+            summary = data.get("summary", "")
+            for item in data.get("coverage", []):
+                req = (item.get("requirement") or "").strip()
+                if not req:
+                    continue
+                status = (item.get("status") or "missing").lower()
+                ev = [i for i in (item.get("evidence_block_ids") or []) if i in valid_ids]
+                note = item.get("note", "")
+                analysis_lines.append(f"[{status}] {req}" + (f" - {note}" if note else ""))
+                if status in ("covered", "partial"):
+                    coverage.append({"keyword": req, "status": status, "support_block_ids": ev, "note": note})
+                else:
+                    uncovered.append(req)
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            logger.warning("Tailor coverage JSON parse failed; using token-overlap fallback")
+            for keyword in keywords:
+                kw = {t for t in re.findall(r"[a-z0-9]+", keyword.lower()) if len(t) > 3}
+                hits = [b["id"] for b in allowed_blocks if kw and
+                        len(kw & set(re.findall(r"[a-z0-9]+", b["text"].lower()))) / len(kw) >= 0.5]
+                if hits:
+                    coverage.append({"keyword": keyword, "status": "partial", "support_block_ids": hits, "note": ""})
+                else:
+                    uncovered.append(keyword)
+            analysis_lines.append(raw[:2000])
 
-        # Build resume text
-        resume_body_md = "\n\n".join([block["text"].strip() for block in allowed_blocks])
-        ats_text = "\n".join([block["text"].strip() for block in allowed_blocks])
+        resume_body_md = "\n\n".join(block["text"].strip() for block in allowed_blocks)
+        ats_text = "\n".join(block["text"].strip() for block in allowed_blocks)
+        analysis = ((f"Match score: {match_score}/100\n{summary}\n\n" if match_score is not None else "")
+                    + "\n".join(analysis_lines))
 
         return {
             "resume_body_md": resume_body_md,
             "resume_ats_text": ats_text,
             "coverage_table": coverage,
             "uncovered_keywords": uncovered,
-            "one_line_summary": f"Resume tailored for {jd.get('title', 'position')} at {jd.get('company', 'company')}",
+            "match_score": match_score,
+            "one_line_summary": summary or f"Resume reviewed for {jd.get('title', 'position')} at {jd.get('company', 'company')}",
             "diff_instructions": [
                 {"block_id": block["id"], "changes": "included"} for block in allowed_blocks
             ],
             "ai_analysis": analysis,
             "model_used": self.model,
         }
+
+    def rewrite_blocks_for_job(self, jd: Dict, blocks: List[Dict]) -> Dict[int, str]:
+        """Rewrite resume blocks to mirror a job's language using ONLY facts already
+        present in each block. Returns {block_id: rewritten_text}. Never invents content;
+        a downstream compliance check still gates the result before it is exported."""
+        job = {k: jd.get(k) for k in ("title", "company", "must_haves", "nice_to_haves")}
+        blocks_json = json.dumps(
+            [{"id": b["id"], "category": b.get("category"), "text": b["text"]} for b in blocks],
+            ensure_ascii=False,
+            indent=2,
+        )
+        prompt = f"""You are ALIGNING a resume to a specific job WITHOUT fabricating anything.
+
+JOB: {json.dumps(job, ensure_ascii=False)}
+
+RESUME BLOCKS (JSON):
+{blocks_json}
+
+ALIGN (do not mirror): reframe each block to surface and lead with the candidate's genuinely
+relevant experience for this role, expressed in the candidate's OWN honest words. Do NOT copy
+or echo the job posting's wording, and do NOT claim skills, qualifications, or experience the
+block does not already demonstrate. Use ONLY facts already present in that block - you may
+reorder, tighten, and clarify, but add nothing new (no skills, tools, employers, titles,
+dates, certifications, degrees, or experiences). It is better to leave a block unchanged than
+to stretch it. Preserve any leading title/company/date line and the structure (header then
+bullets).
+
+Return ONLY this JSON: {{"blocks": [{{"id": <id>, "text": "<rewritten text>"}}]}}"""
+
+        kwargs = {"model": self.model, "messages": [{"role": "user", "content": prompt}]}
+        if not self.is_reasoning_model:
+            kwargs["temperature"] = 0.3
+            kwargs["response_format"] = {"type": "json_object"}
+        raw = self.client.chat.completions.create(**kwargs).choices[0].message.content or ""
+
+        overrides: Dict[int, str] = {}
+        valid_ids = {b["id"] for b in blocks}
+        try:
+            m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
+            data = json.loads(m.group(1) if m else raw)
+            for item in data.get("blocks", []):
+                bid = item.get("id")
+                txt = (item.get("text") or "").strip()
+                if bid in valid_ids and txt:
+                    overrides[int(bid)] = txt
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            logger.warning("rewrite_blocks_for_job: JSON parse failed; no overrides")
+        return overrides
 
     def check_compliance(
         self, resume_text: str, source_blocks: List[Dict], job_context: Dict | None = None

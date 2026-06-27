@@ -18,14 +18,10 @@ from backend.models.schemas import (
     ConfirmResumeBlocksResponse,
     DeleteBlockResponse,
     ExportRequest,
-    ExtractedRequirements,
-    ExtractionQuality,
     ImproveBlockResponse,
     IntakeRequest,
     IntakeResponse,
-    JobDetailResponse,
-    JobProvenance,
-    JobSummary,
+    IntakeTextRequest,
     LogSubmitRequest,
     LogSubmitResponse,
     ParseResumeResponse,
@@ -75,6 +71,20 @@ def intake(payload: IntakeRequest, db: Session = Depends(get_db)) -> IntakeRespo
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    artifact_dir = ArtifactManager(db).ensure_job_dir(job_posting)
+    return IntakeResponse(job_id=job_posting.id, artifact_dir=artifact_dir)
+
+
+@app.post("/intake-text", response_model=IntakeResponse, status_code=status.HTTP_201_CREATED)
+def intake_text(payload: IntakeTextRequest, db: Session = Depends(get_db)) -> IntakeResponse:
+    """Capture a job from pasted description text (for sites that block scraping)."""
+    service = IntakeService(db)
+    try:
+        job_posting = service.run_from_text(payload.text, payload.url, force=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     artifact_dir = ArtifactManager(db).ensure_job_dir(job_posting)
     return IntakeResponse(job_id=job_posting.id, artifact_dir=artifact_dir)
 
@@ -147,87 +157,42 @@ def list_jobs(db: Session = Depends(get_db)) -> list[dict]:
     ]
 
 
-@app.get("/jobs/{job_id}", response_model=JobDetailResponse)
-def get_job_detail(job_id: int, db: Session = Depends(get_db)) -> JobDetailResponse:
-    """Get detailed job information for inspection view."""
+@app.get("/jobs/{job_id}")
+def get_job(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """Return full captured detail for a single job posting (review surface)."""
     import json
 
     job = db.get(models.JobPosting, job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    # Parse JSON fields
-    must_haves = json.loads(job.must_haves_json) if job.must_haves_json else []
-    nice_to_haves = json.loads(job.nice_to_haves_json) if job.nice_to_haves_json else []
-    screening_questions = json.loads(job.screening_questions_json) if job.screening_questions_json else []
+    def _parse_list(raw: str | None) -> list:
+        if not raw:
+            return []
+        try:
+            value = json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        return value if isinstance(value, list) else []
 
-    # Check for raw text availability
-    artifact_mgr = ArtifactManager(db)
-    artifact_dir = artifact_mgr.ensure_job_dir(job)
-    raw_text_path = Path(artifact_dir) / "raw" / "posting.txt"
-    raw_text_available = raw_text_path.exists()
-    raw_text_chars = raw_text_path.stat().st_size if raw_text_available else 0
-
-    # Calculate quality tier
-    has_salary = job.salary_min is not None or job.salary_max is not None
-    has_location = bool(job.location)
-    has_employment_type = bool(job.employment_type)
-    has_seniority = bool(job.seniority)
-
-    must_haves_count = len(must_haves)
-    nice_to_haves_count = len(nice_to_haves)
-    screening_questions_count = len(screening_questions)
-
-    # Quality tier logic
-    if must_haves_count >= 3 and (has_salary or nice_to_haves_count >= 2):
-        quality_tier = "rich"
-    elif must_haves_count >= 1 or nice_to_haves_count >= 1:
-        quality_tier = "minimal"
-    else:
-        quality_tier = "thin"
-
-    return JobDetailResponse(
-        job=JobSummary(
-            id=job.id,
-            title=job.title,
-            company=job.company.name if job.company else None,
-            location=job.location,
-            url=job.url,
-            portal_hint=job.portal_hint,
-            salary_min=job.salary_min,
-            salary_max=job.salary_max,
-            captured_at=job.created_at,
-            extraction_quality=quality_tier,
-        ),
-        extracted=ExtractedRequirements(
-            must_haves=must_haves,
-            nice_to_haves=nice_to_haves,
-            screening_questions=screening_questions,
-            employment_type=job.employment_type,
-            seniority=job.seniority,
-            deadline=job.deadline,
-        ),
-        provenance=JobProvenance(
-            source_url=job.url,
-            apply_url=job.apply_url,
-            portal_hint=job.portal_hint,
-            captured_at=job.created_at,
-            artifact_dir=str(artifact_dir),
-            jd_json_path=job.jd_json_path,
-            raw_text_available=raw_text_available,
-            raw_text_chars=raw_text_chars,
-        ),
-        quality=ExtractionQuality(
-            must_haves_count=must_haves_count,
-            nice_to_haves_count=nice_to_haves_count,
-            screening_questions_count=screening_questions_count,
-            has_salary=has_salary,
-            has_location=has_location,
-            has_employment_type=has_employment_type,
-            has_seniority=has_seniority,
-            quality_tier=quality_tier,
-        ),
-    )
+    return {
+        "id": job.id,
+        "title": job.title,
+        "company": job.company.name if job.company else "Unknown",
+        "location": job.location,
+        "url": job.url,
+        "apply_url": job.apply_url,
+        "employment_type": job.employment_type,
+        "seniority": job.seniority,
+        "salary_min": job.salary_min,
+        "salary_max": job.salary_max,
+        "deadline": job.deadline,
+        "status": job.status,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "must_haves": _parse_list(job.must_haves_json),
+        "nice_to_haves": _parse_list(job.nice_to_haves_json),
+        "screening_questions": _parse_list(job.screening_questions_json),
+    }
 
 
 @app.get("/jobs/{job_id}/raw-text")
@@ -769,13 +734,15 @@ def export_resume(payload: ExportRequest, db: Session = Depends(get_db)) -> Resp
     try:
         if fmt == "pdf":
             data = service.render_pdf(
-                payload.job_id, payload.block_ids, payload.template, payload.resume_version
+                payload.job_id, payload.block_ids, payload.template,
+                payload.resume_version, payload.tailored,
             )
             media_type = "application/pdf"
             ext = "pdf"
         elif fmt == "docx":
             data = service.render_docx(
-                payload.job_id, payload.block_ids, payload.template, payload.resume_version
+                payload.job_id, payload.block_ids, payload.template,
+                payload.resume_version, payload.tailored,
             )
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ext = "docx"

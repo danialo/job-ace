@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from backend.db.session import Base, engine, get_session
 from backend.models.models import Artifact, Company, JobPosting, ResumeBlock
@@ -18,18 +20,22 @@ from backend.models.resume_document import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _setup_db():
-    """Create tables for each test."""
-    Base.metadata.create_all(engine)
-    yield
-    Base.metadata.drop_all(engine)
-
-
 @pytest.fixture
 def db():
-    with get_session() as session:
+    """Isolated in-memory DB session — never touches the real ./db.sqlite3."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    session = TestSession()
+    try:
         yield session
+    finally:
+        session.close()
+        engine.dispose()
 
 
 @pytest.fixture
