@@ -16,6 +16,7 @@ from backend.models.resume_document import (
     ResumeDocument,
     SectionCategory,
     SkillsContent,
+    SkillsGroup,
 )
 from backend.services.resume_normalizer import ResumeNormalizer
 
@@ -154,6 +155,47 @@ class TestSkillsParsing:
         assert "Python" in items
         assert "AWS" in items
 
+    def test_pipe_continuation_line_joined(self, db):
+        """P2 bug: 'Agentic Workflows' orphaned when pipe-delimited line breaks across PDF lines."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="| Python | Bash | Agentic\nWorkflows |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, SkillsContent)
+        items = content.groups[0].items
+        assert "Python" in items
+        assert "Bash" in items
+        assert "Agentic Workflows" in items
+        # Ensure "Agentic" and "Workflows" aren't separate items
+        assert "Agentic" not in items
+        assert "Workflows" not in items
+
+    def test_pipe_continuation_multiple_breaks(self, db):
+        """Handle pipe-delimited line split across multiple lines."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="| Infrastructure as\nCode | Container\nOrchestration | CI/CD |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, SkillsContent)
+        items = content.groups[0].items
+        assert "Infrastructure as Code" in items
+        assert "Container Orchestration" in items
+        assert "CI/CD" in items
+
 
 # ---------------------------------------------------------------------------
 # Summary as prose
@@ -285,6 +327,60 @@ class TestItems:
         assert len(content.items) == 3
         assert "CompTIA A+" in content.items
 
+    def test_merged_certs_split(self, db):
+        """P3 bug: PDF extraction merges distinct certs on single line."""
+        block_id = _add_block(
+            db,
+            category="certifications",
+            text="CompTIA Network+ CompTIA A+",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, ItemsContent)
+        assert len(content.items) == 2
+        assert "CompTIA Network+" in content.items
+        assert "CompTIA A+" in content.items
+
+    def test_merged_certs_multiple_vendors(self, db):
+        """Split certs from different vendors merged on one line."""
+        block_id = _add_block(
+            db,
+            category="certifications",
+            text="AWS Solutions Architect Microsoft Azure Administrator Cisco CCNA",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, ItemsContent)
+        assert len(content.items) == 3
+        assert "AWS Solutions Architect" in content.items
+        assert "Microsoft Azure Administrator" in content.items
+        assert "Cisco CCNA" in content.items
+
+    def test_single_cert_not_split(self, db):
+        """Don't over-split single certifications."""
+        block_id = _add_block(
+            db,
+            category="certifications",
+            text="CompTIA Security+",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        content = doc.sections[0].entries[0].content
+        assert isinstance(content, ItemsContent)
+        assert len(content.items) == 1
+        assert content.items[0] == "CompTIA Security+"
+
 
 # ---------------------------------------------------------------------------
 # Artifact cleanup
@@ -323,6 +419,44 @@ class TestArtifactCleanup:
 
         bullet_text = doc.sections[0].entries[0].content.bullets[0]
         assert "customer-ready" in bullet_text
+
+    def test_space_before_period_fixed(self, db):
+        """P3 bug: trailing spaces before periods from PDF extraction."""
+        block_id = _add_block(
+            db,
+            category="experience",
+            text="● Analyzed issues precisely .\n● Implemented Networker .",
+            job_title="Dev",
+            company="X",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        bullets = doc.sections[0].entries[0].content.bullets
+        assert "precisely." in bullets[0]
+        assert "precisely ." not in bullets[0]
+        assert "Networker." in bullets[1]
+        assert "Networker ." not in bullets[1]
+
+    def test_space_before_comma_fixed(self, db):
+        """PDF artifacts: trailing spaces before commas."""
+        block_id = _add_block(
+            db,
+            category="experience",
+            text="● Managed Python , Go , and Rust projects",
+            job_title="Dev",
+            company="X",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        bullet_text = doc.sections[0].entries[0].content.bullets[0]
+        assert "Python, Go, and Rust" in bullet_text
+        assert "Python ," not in bullet_text
 
 
 # ---------------------------------------------------------------------------
@@ -399,3 +533,97 @@ class TestDocumentSerialization:
         assert restored.basics.name == "Jane Doe"
         assert len(restored.sections) == len(doc.sections)
         assert restored.sections[0].category == doc.sections[0].category
+
+
+# ---------------------------------------------------------------------------
+# Skills group labels preserved (P2 bug fix)
+# ---------------------------------------------------------------------------
+
+class TestSkillsGroupLabels:
+    """Ensure skills group labels like KEY SKILLS are preserved, not stripped."""
+
+    def test_key_skills_label_preserved(self, db):
+        """KEY SKILLS should be a group label, not stripped as section heading."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="KEY SKILLS\n| Python | Go | Rust | TypeScript |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        section = doc.sections[0]
+        assert section.category == SectionCategory.skills
+
+        entry = section.entries[0]
+        assert isinstance(entry.content, SkillsContent)
+
+        # Should have the group with label "Key Skills" (title-cased)
+        groups = entry.content.groups
+        assert len(groups) >= 1
+        assert groups[0].label == "Key Skills"
+        assert "Python" in groups[0].items
+
+    def test_technical_proficiencies_label_preserved(self, db):
+        """TECHNICAL PROFICIENCIES should be a group label, not stripped."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="TECHNICAL PROFICIENCIES\nPython, Go, Rust, TypeScript",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        entry = doc.sections[0].entries[0]
+        assert isinstance(entry.content, SkillsContent)
+
+        groups = entry.content.groups
+        assert len(groups) >= 1
+        assert groups[0].label == "Technical Proficiencies"
+
+    def test_multiple_skill_groups_preserved(self, db):
+        """Multiple group labels should all be preserved."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text=(
+                "KEY SKILLS\n"
+                "| Python | Go | Rust |\n"
+                "TECHNICAL PROFICIENCIES\n"
+                "| Docker | Kubernetes | AWS |"
+            ),
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        entry = doc.sections[0].entries[0]
+        groups = entry.content.groups
+        assert len(groups) == 2
+        assert groups[0].label == "Key Skills"
+        assert groups[1].label == "Technical Proficiencies"
+
+    def test_generic_skills_heading_still_stripped(self, db):
+        """Generic 'Skills' heading should still be stripped (not a group label)."""
+        block_id = _add_block(
+            db,
+            category="skills",
+            text="Skills\n| Python | Go | Rust |",
+        )
+        db.commit()
+
+        normalizer = ResumeNormalizer(db)
+        doc = normalizer.normalize([block_id])
+
+        entry = doc.sections[0].entries[0]
+        groups = entry.content.groups
+
+        # The generic "Skills" should be stripped, so first group has no label
+        # (or there's no group label matching "Skills")
+        if groups:
+            assert groups[0].label != "Skills"

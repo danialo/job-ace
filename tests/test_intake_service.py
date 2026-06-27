@@ -3,7 +3,7 @@ import pytest
 from unittest.mock import patch
 
 from backend.models import models
-from backend.services.intake import IntakeService
+from backend.services.intake import IntakeService, ThinExtractionError
 from backend.services.llm import StubLLMClient
 
 
@@ -91,3 +91,56 @@ def test_intake_creates_application(db_session, patched_settings):
 def test_guess_company_from_url():
     assert IntakeService._guess_company_from_url("https://www.acme.com/jobs") == "Acme"
     assert IntakeService._guess_company_from_url("https://careers.bigco.io/apply") == "Bigco"
+
+
+# --- ThinExtractionError tests ---
+
+CLOUDFLARE_HTML = """
+<html><body>
+<title>Just a moment...</title>
+<h1>Checking your browser before accessing this site.</h1>
+<p>Please enable JavaScript and cookies.</p>
+<p>Ray ID: abc123</p>
+</body></html>
+"""
+
+
+CAPTCHA_HTML = """
+<html><body>
+<h1>Please verify you are human</h1>
+<p>Complete the CAPTCHA to continue.</p>
+</body></html>
+"""
+
+
+THIN_EXTRACTION_HTML = """
+<html><body>
+</body></html>
+"""
+
+
+def test_intake_rejects_cloudflare_page(db_session, patched_settings):
+    """Cloudflare challenge pages should raise ThinExtractionError."""
+    svc = _make_service(db_session, patched_settings)
+    with patch.object(svc, "_fetch_html", return_value=CLOUDFLARE_HTML):
+        with pytest.raises(ThinExtractionError) as exc_info:
+            svc.run("https://example.com/jobs/blocked")
+    assert "bot challenge" in str(exc_info.value).lower()
+
+
+def test_intake_rejects_captcha_page(db_session, patched_settings):
+    """CAPTCHA pages should raise ThinExtractionError."""
+    svc = _make_service(db_session, patched_settings)
+    with patch.object(svc, "_fetch_html", return_value=CAPTCHA_HTML):
+        with pytest.raises(ThinExtractionError) as exc_info:
+            svc.run("https://example.com/jobs/captcha")
+    assert "bot challenge" in str(exc_info.value).lower() or "verify" in str(exc_info.value).lower()
+
+
+def test_intake_rejects_thin_extraction(db_session, patched_settings):
+    """Pages with no extractable job data should raise ThinExtractionError."""
+    svc = _make_service(db_session, patched_settings)
+    with patch.object(svc, "_fetch_html", return_value=THIN_EXTRACTION_HTML):
+        with pytest.raises(ThinExtractionError) as exc_info:
+            svc.run("https://example.com/jobs/empty")
+    assert "meaningful job data" in str(exc_info.value).lower()

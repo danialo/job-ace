@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -20,6 +20,7 @@ from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup
 from sqlalchemy.orm import Session
 
+from backend.models import models as db_models
 from backend.models.resume_document import (
     BulletsContent,
     EntryHeader,
@@ -71,7 +72,33 @@ def _header_dates(header: EntryHeader | None) -> str:
         parts.append("Present")
     elif header.end_date:
         parts.append(header.end_date.display())
-    return " – ".join(parts)
+    return " \u2013 ".join(parts)
+
+
+def _content_to_txt(content) -> str:
+    """Render EntryContent as plain text (ATS-safe).
+
+    - Bullets: each prefixed with a dash
+    - Prose: paragraphs separated by blank lines
+    - Skills: groups as label: item1, item2 (or unlabeled inline)
+    - Items: each on its own line
+    """
+    if isinstance(content, BulletsContent):
+        return "\n".join(f"- {b}" for b in content.bullets)
+    elif isinstance(content, ProseContent):
+        return "\n\n".join(content.paragraphs)
+    elif isinstance(content, SkillsContent):
+        lines = []
+        for group in content.groups:
+            items_str = ", ".join(group.items)
+            if group.label:
+                lines.append(f"{group.label}: {items_str}")
+            else:
+                lines.append(items_str)
+        return "\n".join(lines)
+    elif isinstance(content, ItemsContent):
+        return "\n".join(content.items)
+    return ""
 
 
 def _doc_to_template_data(doc: ResumeDocument) -> Dict:
@@ -234,16 +261,90 @@ class ExportService:
         doc.save(buf)
         return buf.getvalue()
 
+    def render_txt(
+        self,
+        job_id: int,
+        block_ids: List[int],
+        version: str = "v1",
+    ) -> str:
+        """Render resume blocks as plain text (ATS-safe).
+
+        Output is human-readable and machine-parseable:
+        - Name and contact info as pipe-separated line
+        - Section headings in ALL CAPS with underline dashes
+        - Entry headers as title/org (dates)
+        - Bullets prefixed with dash
+        - Skills as label: item1, item2
+        - Items one per line
+        """
+        resume = self._build_document(block_ids, job_id=job_id)
+        lines: List[str] = []
+
+        # Contact header
+        basics = resume.basics
+        if basics.name:
+            lines.append(basics.name)
+        info_parts = [v for v in (basics.email, basics.phone, basics.location, basics.linkedin) if v]
+        if info_parts:
+            lines.append(" | ".join(info_parts))
+        if lines:
+            lines.append("")  # blank line after header
+
+        # Sections
+        for section in resume.sections:
+            heading = section.heading.upper()
+            lines.append(heading)
+            lines.append("-" * len(heading))
+
+            for entry in section.entries:
+                # Entry header line
+                if entry.header and (entry.header.title or entry.header.organization):
+                    header_parts = []
+                    if entry.header.title:
+                        header_parts.append(entry.header.title)
+                    if entry.header.organization:
+                        header_parts.append(entry.header.organization)
+                    header_str = " | ".join(header_parts)
+                    dates = _header_dates(entry.header)
+                    if dates:
+                        header_str = f"{header_str} ({dates})"
+                    lines.append(header_str)
+
+                # Content
+                content_txt = _content_to_txt(entry.content)
+                if content_txt:
+                    lines.append(content_txt)
+                lines.append("")  # blank line between entries
+
+            lines.append("")  # extra blank line between sections
+
+        # Strip trailing blank lines, add single trailing newline
+        result = "\n".join(lines).rstrip() + "\n"
+        return result
+
     def _build_document(
-        self, block_ids: List[int], job_id: int | None = None, tailored: bool = False
+        self,
+        block_ids: List[int],
+        job_id: Optional[int] = None,
+        tailored: bool = False,
     ) -> ResumeDocument:
-        """Normalize blocks into a ResumeDocument, optionally applying the per-job
-        tailored block text produced by the tailor step (base blocks stay untouched)."""
+        """Normalize blocks into a ResumeDocument.
+
+        If ``tailored`` is set (with a job_id), the per-job tailored block text
+        produced by the tailor step is applied in-memory (base blocks stay
+        untouched). If job_id is provided, the canonical document is persisted as
+        derived/resume_document.json for debuggability and reproducibility.
+        """
         overrides: Dict[int, str] = {}
         if tailored and job_id:
             overrides = self._load_tailored_overrides(job_id)
         normalizer = ResumeNormalizer(self.db)
-        return normalizer.normalize(block_ids, text_overrides=overrides)
+        doc = normalizer.normalize(block_ids, text_overrides=overrides)
+
+        if job_id is not None:
+            self._persist_document(job_id, doc)
+
+        return doc
 
     def _load_tailored_overrides(self, job_id: int) -> Dict[int, str]:
         job = self.db.get(models.JobPosting, job_id)
@@ -257,3 +358,19 @@ class ExportService:
             return {int(k): v for k, v in raw.items() if v}
         except (json.JSONDecodeError, ValueError, OSError):
             return {}
+
+    def _persist_document(self, job_id: int, doc: ResumeDocument) -> None:
+        """Persist the canonical ResumeDocument as a JSON artifact."""
+        from backend.services.artifacts import ArtifactManager
+
+        job_posting = self.db.get(db_models.JobPosting, job_id)
+        if job_posting is None:
+            return  # no job context — skip persistence silently
+
+        artifact_mgr = ArtifactManager(self.db)
+        artifact_mgr.write_text(
+            job_posting,
+            "resume_document",
+            "derived/resume_document.json",
+            doc.model_dump_json(indent=2),
+        )

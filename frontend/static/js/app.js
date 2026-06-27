@@ -741,22 +741,269 @@ function displayJobs() {
         return;
     }
 
-    jobsList.innerHTML = jobs.map(job => {
-        const isLink = /^https?:\/\//i.test(job.url || '');
-        const source = isLink
-            ? `<p><strong>Source:</strong> <a href="${esc(job.url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
-            : `<p><strong>Source:</strong> <span class="text-muted">Pasted text (no URL)</span></p>`;
-        return `
-        <div class="job-item">
-            <h4>${esc(job.title || 'Untitled Job')}</h4>
-            <p><strong>Company:</strong> ${esc(job.company)}</p>
-            <p><strong>Location:</strong> ${esc(job.location || 'N/A')}</p>
-            <p><strong>Job ID:</strong> ${esc(job.id)}</p>
-            ${source}
-            <button type="button" class="btn btn-secondary" onclick="reviewJob(${esc(job.id)})">Review capture</button>
+    jobsList.innerHTML = jobs.map(job => `
+        <div class="job-card" data-job-id="${esc(job.id)}">
+            <div class="job-card-header" onclick="toggleJobCard(${job.id})">
+                <div class="job-card-summary">
+                    <h4>${esc(job.title || 'Untitled Job')}</h4>
+                    <div class="job-meta">
+                        <span>🏢 ${esc(job.company)}</span>
+                        <span>📍 ${esc(job.location || 'N/A')}</span>
+                        <span>#${esc(job.id)}</span>
+                    </div>
+                </div>
+                <div class="job-card-expand">▼</div>
+            </div>
+            <div class="job-card-detail" id="job-detail-${job.id}">
+                <div class="loading-detail">Loading details...</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Track currently expanded job (inspection view)
+let expandedJobId = null;
+const jobDetailsCache = {};
+
+async function toggleJobCard(jobId) {
+    const card = document.querySelector(`.job-card[data-job-id="${jobId}"]`);
+    const detailEl = document.getElementById(`job-detail-${jobId}`);
+
+    // Close previously expanded card
+    if (expandedJobId && expandedJobId !== jobId) {
+        const prevCard = document.querySelector(`.job-card[data-job-id="${expandedJobId}"]`);
+        if (prevCard) prevCard.classList.remove('expanded');
+    }
+
+    // Toggle current card
+    if (card.classList.contains('expanded')) {
+        card.classList.remove('expanded');
+        expandedJobId = null;
+        return;
+    }
+
+    card.classList.add('expanded');
+    expandedJobId = jobId;
+
+    // Load detail if not already loaded
+    if (detailEl.querySelector('.loading-detail')) {
+        await loadJobDetail(jobId, detailEl);
+    }
+}
+
+async function loadJobDetail(jobId, detailEl) {
+    try {
+        const response = await fetch(`${API_BASE}/jobs/${jobId}/detail`);
+        if (!response.ok) {
+            detailEl.innerHTML = '<p class="text-muted">Failed to load details.</p>';
+            return;
+        }
+
+        const data = await response.json();
+        jobDetailsCache[jobId] = data;
+        detailEl.innerHTML = renderJobDetail(data);
+    } catch (error) {
+        console.error('Failed to load job detail:', error);
+        detailEl.innerHTML = '<p class="text-muted">Error loading details.</p>';
+    }
+}
+
+function renderJobDetail(data) {
+    const { job, extracted, provenance, quality } = data;
+
+    // Quality banner
+    const qualityBanner = `
+        <div class="quality-banner">
+            <span class="quality-tier ${quality.quality_tier}">${quality.quality_tier}</span>
+            <span class="quality-item ${quality.must_haves_count > 0 ? 'found' : 'missing'}">
+                ${quality.must_haves_count > 0 ? '✓' : '○'} Must-haves: ${quality.must_haves_count}
+            </span>
+            <span class="quality-item ${quality.nice_to_haves_count > 0 ? 'found' : 'missing'}">
+                ${quality.nice_to_haves_count > 0 ? '✓' : '○'} Nice-to-haves: ${quality.nice_to_haves_count}
+            </span>
+            <span class="quality-item ${quality.screening_questions_count > 0 ? 'found' : 'missing'}">
+                ${quality.screening_questions_count > 0 ? '✓' : '○'} Questions: ${quality.screening_questions_count}
+            </span>
+            <span class="quality-item ${quality.has_salary ? 'found' : 'missing'}">
+                ${quality.has_salary ? '✓' : '○'} Salary
+            </span>
         </div>
     `;
-    }).join('');
+
+    // Decision-critical fields
+    const formatSalary = () => {
+        if (job.salary_min && job.salary_max) {
+            return `$${job.salary_min.toLocaleString()} - $${job.salary_max.toLocaleString()}`;
+        } else if (job.salary_min) {
+            return `$${job.salary_min.toLocaleString()}+`;
+        } else if (job.salary_max) {
+            return `Up to $${job.salary_max.toLocaleString()}`;
+        }
+        return null;
+    };
+
+    const decisionCritical = `
+        <div class="decision-critical">
+            <div class="decision-item">
+                <span class="label">Employment Type</span>
+                <span class="value ${extracted.employment_type ? '' : 'missing'}">
+                    ${esc(extracted.employment_type) || 'Not specified'}
+                </span>
+            </div>
+            <div class="decision-item">
+                <span class="label">Seniority</span>
+                <span class="value ${extracted.seniority ? '' : 'missing'}">
+                    ${esc(extracted.seniority) || 'Not specified'}
+                </span>
+            </div>
+            <div class="decision-item">
+                <span class="label">Salary</span>
+                <span class="value ${formatSalary() ? '' : 'missing'}">
+                    ${formatSalary() || 'Not specified'}
+                </span>
+            </div>
+            <div class="decision-item">
+                <span class="label">Deadline</span>
+                <span class="value ${extracted.deadline ? '' : 'missing'}">
+                    ${esc(extracted.deadline) || 'Not specified'}
+                </span>
+            </div>
+        </div>
+    `;
+
+    // Requirements sections
+    const mustHavesSection = `
+        <div class="requirements-section">
+            <h5>Must-Haves <span class="count">${extracted.must_haves.length}</span></h5>
+            ${extracted.must_haves.length > 0
+                ? `<ul class="requirements-list">${extracted.must_haves.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`
+                : '<p class="requirements-empty">No required qualifications extracted</p>'
+            }
+        </div>
+    `;
+
+    const niceToHavesSection = `
+        <div class="requirements-section">
+            <h5>Nice-to-Haves <span class="count">${extracted.nice_to_haves.length}</span></h5>
+            ${extracted.nice_to_haves.length > 0
+                ? `<ul class="requirements-list">${extracted.nice_to_haves.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`
+                : '<p class="requirements-empty">No preferred qualifications extracted</p>'
+            }
+        </div>
+    `;
+
+    const screeningSection = extracted.screening_questions.length > 0 ? `
+        <div class="requirements-section">
+            <h5>Screening Questions <span class="count">${extracted.screening_questions.length}</span></h5>
+            <ul class="requirements-list">${extracted.screening_questions.map(q => `<li>${esc(q)}</li>`).join('')}</ul>
+        </div>
+    ` : '';
+
+    // Debug/provenance section
+    const debugSection = `
+        <details class="debug-section">
+            <summary>Provenance & Debug Info</summary>
+            <div class="debug-content">
+                <dl>
+                    <dt>Source URL</dt>
+                    <dd><a href="${esc(provenance.source_url)}" target="_blank">${esc(provenance.source_url)}</a></dd>
+                    <dt>Apply URL</dt>
+                    <dd>${provenance.apply_url ? `<a href="${esc(provenance.apply_url)}" target="_blank">${esc(provenance.apply_url)}</a>` : 'Same as source'}</dd>
+                    <dt>Portal Hint</dt>
+                    <dd>${esc(provenance.portal_hint) || 'Unknown'}</dd>
+                    <dt>Captured At</dt>
+                    <dd>${provenance.captured_at ? new Date(provenance.captured_at).toLocaleString() : 'Unknown'}</dd>
+                    <dt>Artifact Dir</dt>
+                    <dd>${esc(provenance.artifact_dir) || 'N/A'}</dd>
+                    <dt>Raw Text</dt>
+                    <dd>${provenance.raw_text_available ? `${provenance.raw_text_chars.toLocaleString()} chars` : 'Not available'}</dd>
+                </dl>
+                ${provenance.raw_text_available ? `
+                    <div class="raw-text-toggle">
+                        <button onclick="toggleRawText(${job.id}, this)">Show Raw Text</button>
+                    </div>
+                    <div class="raw-text-content" id="raw-text-${job.id}" style="display: none;"></div>
+                ` : ''}
+            </div>
+        </details>
+    `;
+
+    // Actions
+    const actions = `
+        <div class="job-card-actions">
+            <button onclick="copyRequirements(${job.id})">📋 Copy Requirements</button>
+            <button onclick="window.open('${esc(provenance.apply_url || provenance.source_url)}', '_blank')">🔗 Open Posting</button>
+        </div>
+    `;
+
+    return qualityBanner + decisionCritical + mustHavesSection + niceToHavesSection + screeningSection + debugSection + actions;
+}
+
+async function toggleRawText(jobId, button) {
+    const contentEl = document.getElementById(`raw-text-${jobId}`);
+    if (contentEl.style.display === 'none') {
+        // Load and show
+        if (!contentEl.dataset.loaded) {
+            button.textContent = 'Loading...';
+            try {
+                const response = await fetch(`${API_BASE}/jobs/${jobId}/raw-text?max_chars=10000`);
+                if (response.ok) {
+                    const data = await response.json();
+                    contentEl.textContent = data.text;
+                    if (data.truncated) {
+                        contentEl.textContent += `\n\n... (truncated, ${data.total_chars.toLocaleString()} total chars)`;
+                    }
+                    contentEl.dataset.loaded = 'true';
+                } else {
+                    contentEl.textContent = 'Failed to load raw text.';
+                }
+            } catch (error) {
+                contentEl.textContent = 'Error loading raw text.';
+            }
+        }
+        contentEl.style.display = 'block';
+        button.textContent = 'Hide Raw Text';
+    } else {
+        contentEl.style.display = 'none';
+        button.textContent = 'Show Raw Text';
+    }
+}
+
+async function copyRequirements(jobId) {
+    let data = jobDetailsCache[jobId];
+    if (!data) {
+        try {
+            const response = await fetch(`${API_BASE}/jobs/${jobId}/detail`);
+            if (response.ok) {
+                data = await response.json();
+                jobDetailsCache[jobId] = data;
+            }
+        } catch (error) {
+            console.error('Failed to fetch job for copy:', error);
+            return;
+        }
+    }
+
+    if (!data) return;
+
+    const { extracted } = data;
+    let text = '';
+
+    if (extracted.must_haves.length > 0) {
+        text += 'MUST-HAVES:\n' + extracted.must_haves.map(r => `• ${r}`).join('\n') + '\n\n';
+    }
+    if (extracted.nice_to_haves.length > 0) {
+        text += 'NICE-TO-HAVES:\n' + extracted.nice_to_haves.map(r => `• ${r}`).join('\n');
+    }
+
+    if (text) {
+        await navigator.clipboard.writeText(text.trim());
+        // Brief visual feedback
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = originalText, 1500);
+    }
 }
 
 async function reviewJob(jobId) {
