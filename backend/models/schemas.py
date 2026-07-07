@@ -142,6 +142,7 @@ class ParseResumeResponse(BaseModel):
     sections: Optional[List[ResumeSectionInfo]] = None
     parsing_summary: Optional[dict] = None
     original_text: str = ""  # Original resume text before parsing
+    upload_id: Optional[int] = None
 
 
 class ConfirmBlockData(BaseModel):
@@ -158,6 +159,7 @@ class ConfirmBlockData(BaseModel):
 class ConfirmResumeBlocksRequest(BaseModel):
     """Request to confirm and save parsed resume blocks."""
     blocks: List[ConfirmBlockData]
+    upload_id: Optional[int] = None
 
 
 class ConfirmResumeBlocksResponse(BaseModel):

@@ -276,6 +276,9 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
         tmp_file.write(content)
         tmp_path = Path(tmp_file.name)
 
+    store = ResumeStoreService(db)
+    upload_row, _reused = store.save_upload(file.filename, content)
+
     try:
         # Get LLM client for resume parsing (o3-mini)
         from backend.services.llm import get_llm_client
@@ -317,6 +320,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
             db.flush()  # Flush to get the ID
             block_ids.append(block.id)
 
+        store.link_blocks(upload_row.id, block_ids)
         db.commit()
 
         return {
@@ -325,6 +329,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
             "blocks_loaded": len(block_ids),
             "block_ids": block_ids,
             "metadata": resume_data.get("metadata", {}),
+            "upload_id": upload_row.id,
         }
 
     except Exception as e:
@@ -356,6 +361,9 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
         content = await file.read()
         tmp_file.write(content)
         tmp_path = Path(tmp_file.name)
+
+    upload_row, _reused = ResumeStoreService(db).save_upload(file.filename, content)
+    db.commit()
 
     try:
         # Get LLM client for resume parsing
@@ -417,6 +425,7 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
             sections=sections_info,
             parsing_summary=resume_data.get("parsing_summary"),
             original_text=text,  # Include original text for side-by-side comparison
+            upload_id=upload_row.id,
         )
 
     except Exception as e:
@@ -450,6 +459,8 @@ def confirm_resume_blocks(payload: ConfirmResumeBlocksRequest, db: Session = Dep
             db.flush()  # Flush to get the ID
             block_ids.append(block.id)
 
+        if payload.upload_id:
+            ResumeStoreService(db).link_blocks(payload.upload_id, block_ids)
         db.commit()
 
         return ConfirmResumeBlocksResponse(
@@ -461,6 +472,23 @@ def confirm_resume_blocks(payload: ConfirmResumeBlocksRequest, db: Session = Dep
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error saving blocks: {str(e)}")
+
+
+@app.get("/uploaded-resumes")
+def list_uploaded_resumes(db: Session = Depends(get_db)) -> list[dict]:
+    """List original resume files uploaded in Resume Intake."""
+    return ResumeStoreService(db).list_uploads()
+
+
+@app.get("/uploaded-resumes/{upload_id}/download")
+def download_uploaded_resume(upload_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    """Stream an original uploaded resume file."""
+    row = ResumeStoreService(db).get_upload(upload_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded resume not found")
+    if not Path(row.path).exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File missing from disk: {row.path}")
+    return FileResponse(row.path, filename=row.filename)
 
 
 @app.get("/applications")

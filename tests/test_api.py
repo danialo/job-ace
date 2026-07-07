@@ -365,3 +365,55 @@ def test_generated_resume_download(client, patched_settings):
     assert gone.status_code == 404
     assert row.docx_path in gone.json()["detail"]
     session.close()
+
+
+# --- Uploaded-resume persistence ---
+
+def test_upload_stores_file_and_lists(client, patched_settings, monkeypatch):
+    from backend.services.resume_converter import ResumeConverter
+    monkeypatch.setattr(
+        ResumeConverter, "parse_text_resume",
+        lambda self, text: {"blocks": [{"category": "summary", "content": "Python dev", "tags": []}], "metadata": {}},
+    )
+
+    resp = client.post(
+        "/upload-resume",
+        files={"file": ("my_resume.txt", b"Python dev resume text", "text/plain")},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["upload_id"] > 0
+
+    uploads = client.get("/uploaded-resumes").json()
+    assert len(uploads) == 1
+    assert uploads[0]["filename"] == "my_resume.txt"
+    assert uploads[0]["block_count"] == 1
+
+    dl = client.get(f"/uploaded-resumes/{uploads[0]['id']}/download")
+    assert dl.status_code == 200
+    assert dl.content == b"Python dev resume text"
+
+
+def test_parse_then_confirm_links_upload(client, patched_settings, monkeypatch):
+    from backend.services.resume_converter import ResumeConverter
+    monkeypatch.setattr(
+        ResumeConverter, "parse_text_resume",
+        lambda self, text: {"blocks": [{"category": "summary", "content": "Python dev", "tags": []}], "metadata": {}},
+    )
+
+    parsed = client.post(
+        "/parse-resume",
+        files={"file": ("r.txt", b"resume body", "text/plain")},
+    ).json()
+    upload_id = parsed["upload_id"]
+    assert upload_id > 0
+
+    confirm = client.post("/confirm-resume-blocks", json={
+        "blocks": [{"category": "summary", "content": "Python dev", "tags": [],
+                    "job_title": None, "company": None, "start_date": None, "end_date": None}],
+        "upload_id": upload_id,
+    })
+    assert confirm.status_code == 201
+
+    uploads = client.get("/uploaded-resumes").json()
+    assert uploads[0]["block_count"] == 1
