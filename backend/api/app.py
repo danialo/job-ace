@@ -39,6 +39,7 @@ from backend.services.export import ExportService
 from backend.services.intake import IntakeService
 from backend.services.prefill import PrefillPlanner
 from backend.services.resume_converter import ResumeConverter
+from backend.services.resume_store import ResumeStoreService
 from backend.services.submission import SubmissionLogger
 from backend.services.tailor import TailorService
 
@@ -715,11 +716,34 @@ def export_resume(payload: ExportRequest, db: Session = Depends(get_db)) -> Resp
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = f"resume_{payload.resume_version}.{ext}"
+    store = ResumeStoreService(db)
+    try:
+        row = store.save_generated(
+            job_id=payload.job_id,
+            block_ids=payload.block_ids,
+            tailored=payload.tailored,
+            template=payload.template,
+            fmt=fmt,
+            data=data,
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Resume rendered but could not be saved: {exc}"
+        ) from exc
+
+    filename = f"resume_v{row.version}.{ext}"
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Resume-Version": str(row.version),
+        },
     )
 
 

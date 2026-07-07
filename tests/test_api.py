@@ -263,3 +263,41 @@ def test_artifact_not_found(client, api_session):
 def test_artifact_job_not_found(client):
     resp = client.get("/artifact/9999", params={"kind": "test"})
     assert resp.status_code == 404
+
+
+# --- Export persistence ---
+
+def _seed_job_and_blocks(session):
+    company = models.Company(name="ExpCo")
+    session.add(company)
+    session.flush()
+    job = models.JobPosting(company_id=company.id, url="https://x.test/j", title="Dev", location="Remote")
+    session.add(job)
+    session.flush()
+    blocks = [
+        models.ResumeBlock(category="summary", text="Python developer."),
+        models.ResumeBlock(category="experience", text="Built APIs.", job_title="Dev", company="Acme"),
+    ]
+    session.add_all(blocks)
+    session.flush()
+    ids = (job.id, [b.id for b in blocks])
+    session.commit()
+    return ids
+
+
+def test_export_persists_generated_resume(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+
+    resp = client.post("/export", json={
+        "job_id": job_id, "block_ids": block_ids,
+        "template": "classic", "format": "docx", "resume_version": "v1",
+        "tailored": False,
+    })
+    assert resp.status_code == 200
+    assert resp.headers["x-resume-version"] == "1"
+
+    rows = session.query(models.GeneratedResume).filter_by(job_posting_id=job_id).all()
+    assert len(rows) == 1
+    assert rows[0].docx_path and rows[0].pdf_path is None
+    session.close()
