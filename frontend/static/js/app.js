@@ -799,6 +799,10 @@ async function reviewJob(jobId) {
             <h4>Nice-to-haves</h4>${renderList(job.nice_to_haves)}
             <h4>Screening questions</h4>${renderList(job.screening_questions)}
         `;
+
+        // Generated Resume panel — the resume(s) built for this job
+        body.insertAdjacentHTML('beforeend', '<div id="job-resume-panel"><h4>Generated Resume</h4><p class="text-muted">Loading…</p></div>');
+        renderJobResumePanel(jobId);
     } catch (error) {
         body.innerHTML = `<p style="color:#c0392b;">Network error: ${esc(error.message)}</p>`;
     }
@@ -806,6 +810,74 @@ async function reviewJob(jobId) {
 
 function closeJobReviewModal() {
     document.getElementById('job-review-modal').classList.add('hidden');
+}
+
+async function renderJobResumePanel(jobId) {
+    const panel = document.getElementById('job-resume-panel');
+    if (!panel) return;
+    try {
+        const latestResp = await fetch(`${API_BASE}/jobs/${jobId}/resumes/latest`);
+        if (latestResp.status === 404) {
+            panel.innerHTML = '<h4>Generated Resume</h4><p class="text-muted">No resume generated for this job yet.</p>';
+            return;
+        }
+        if (!latestResp.ok) throw new Error(`status ${latestResp.status}`);
+        const latest = await latestResp.json();
+        const versionsResp = await fetch(`${API_BASE}/jobs/${jobId}/resumes`);
+        const versions = versionsResp.ok ? await versionsResp.json() : [];
+
+        const fmtButtons = [
+            latest.has_pdf ? `<button type="button" class="btn btn-secondary" onclick="downloadGeneratedResume(${latest.id}, 'pdf')">Download PDF</button>` : '',
+            latest.has_docx ? `<button type="button" class="btn btn-secondary" onclick="downloadGeneratedResume(${latest.id}, 'docx')">Download DOCX</button>` : '',
+        ].join(' ');
+
+        const history = versions.length > 1
+            ? `<details><summary>${versions.length} versions</summary><ul class="job-review-list">${versions.map(v =>
+                  `<li>v${v.version} — ${new Date(v.created_at).toLocaleDateString()} (${v.template}${v.tailored ? ', tailored' : ''})`
+                  + (v.has_pdf ? ` <a href="#" onclick="downloadGeneratedResume(${v.id}, 'pdf'); return false;">PDF</a>` : '')
+                  + (v.has_docx ? ` <a href="#" onclick="downloadGeneratedResume(${v.id}, 'docx'); return false;">DOCX</a>` : '')
+                  + '</li>').join('')}</ul></details>`
+            : '';
+
+        panel.innerHTML = `
+            <h4>Generated Resume</h4>
+            <p><strong>v${latest.version}</strong> — ${new Date(latest.created_at).toLocaleString()}${latest.tailored ? ' (tailored)' : ''}, template: ${esc(latest.template)}</p>
+            <p>${fmtButtons}
+               <button type="button" class="btn btn-primary" onclick="loadSavedResumeInTailor(${jobId})">Load in Tailor</button></p>
+            <pre class="resume-preview">${esc(latest.resume_text)}</pre>
+            ${history}
+        `;
+    } catch (error) {
+        panel.innerHTML = `<h4>Generated Resume</h4><p style="color:#c0392b;">Could not load resume: ${esc(error.message)}</p>`;
+    }
+}
+
+async function downloadGeneratedResume(resumeId, format) {
+    try {
+        const response = await fetch(`${API_BASE}/generated-resumes/${resumeId}/download?format=${format}`);
+        if (!response.ok) {
+            const err = await response.json();
+            alert('Download failed: ' + (err.detail || 'Unknown error'));
+            return;
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = response.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="(.+)"/);
+        a.download = match ? match[1] : `resume.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert('Download error: ' + error.message);
+    }
+}
+
+function loadSavedResumeInTailor(jobId) {
+    alert('Coming in Task 9');
 }
 
 // Load Blocks - Only if cookie indicates user has uploaded resume
