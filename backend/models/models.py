@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.session import Base
@@ -52,6 +52,9 @@ class JobPosting(Base):
         "Application", back_populates="job_posting", uselist=False
     )
     artifacts: Mapped[list["Artifact"]] = relationship("Artifact", back_populates="job_posting")
+    generated_resumes: Mapped[list["GeneratedResume"]] = relationship(
+        "GeneratedResume", back_populates="job_posting", order_by="GeneratedResume.version"
+    )
 
 
 class Application(Base):
@@ -128,3 +131,42 @@ class ResumeBlockUsage(Base):
     __table_args__ = (
         UniqueConstraint("application_id", "resume_block_id", "used_in", name="uq_block_usage"),
     )
+
+
+class GeneratedResume(Base):
+    """A resume generated (exported) for a specific job — the pairing record."""
+
+    __tablename__ = "generated_resume"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_posting_id: Mapped[int] = mapped_column(ForeignKey("job_posting.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    block_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    overrides_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    tailored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    template: Mapped[str] = mapped_column(String, nullable=False, default="classic")
+    resume_text: Mapped[str] = mapped_column(Text, nullable=False)
+    pdf_path: Mapped[Optional[str]] = mapped_column(Text)
+    docx_path: Mapped[Optional[str]] = mapped_column(Text)
+    content_sha: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    job_posting: Mapped[JobPosting] = relationship("JobPosting", back_populates="generated_resumes")
+
+    __table_args__ = (
+        UniqueConstraint("job_posting_id", "version", name="uq_generated_resume_job_version"),
+    )
+
+
+class UploadedResume(Base):
+    """An original resume file uploaded in Resume Intake. Deliberately not job-linked."""
+
+    __tablename__ = "uploaded_resume"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    size_bytes: Mapped[Optional[int]] = mapped_column(Integer)
+    block_ids_json: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

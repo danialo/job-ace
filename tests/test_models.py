@@ -65,3 +65,47 @@ def test_resume_block_usage(db_session, sample_job, sample_blocks):
     db_session.add(usage)
     db_session.flush()
     assert usage in sample_job.application.block_usage
+
+
+def test_generated_resume_roundtrip(db_session, sample_job):
+    row = models.GeneratedResume(
+        job_posting_id=sample_job.id,
+        version=1,
+        block_ids_json="[1, 2]",
+        overrides_json="{}",
+        tailored=False,
+        template="classic",
+        resume_text="Some resume text",
+        content_sha="abc123",
+    )
+    db_session.add(row)
+    db_session.flush()
+
+    assert row.id is not None
+    assert row.pdf_path is None
+    assert sample_job.generated_resumes == [row]
+
+
+def test_generated_resume_version_unique_per_job(db_session, sample_job):
+    import pytest as _pytest
+    from sqlalchemy.exc import IntegrityError
+
+    for _ in range(2):
+        db_session.add(models.GeneratedResume(
+            job_posting_id=sample_job.id, version=1, block_ids_json="[]",
+            overrides_json="{}", tailored=False, template="classic",
+            resume_text="", content_sha="x",
+        ))
+    with _pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+def test_uploaded_resume_roundtrip(db_session):
+    row = models.UploadedResume(
+        filename="resume.pdf", path="/tmp/resumes/abc_resume.pdf",
+        sha256="deadbeef", size_bytes=1234,
+    )
+    db_session.add(row)
+    db_session.flush()
+    assert row.id is not None
+    assert row.block_ids_json is None
