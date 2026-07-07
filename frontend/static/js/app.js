@@ -19,6 +19,7 @@ let applications = [];
 let lastTailorJobId = null;
 let lastTailorBlockIds = [];
 let lastTailorVersion = 'v1';
+let lastUploadId = null;
 
 // Cookie helpers
 function setCookie(name, value, days = 365) {
@@ -53,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadBlocks();
     loadApplications();
     loadTemplates();
+    loadUploadedResumes();
 });
 
 // Tab Management
@@ -316,6 +318,11 @@ async function handleResumeUpload(e) {
         console.log('original_text value:', data.original_text);
 
         if (response.ok) {
+            // Store upload_id for threading through confirm
+            if (data.upload_id) {
+                lastUploadId = data.upload_id;
+            }
+
             // Clear existing blocks before saving new ones to prevent duplicates
             await fetch(`${API_BASE}/blocks`, {
                 method: 'DELETE',
@@ -326,7 +333,7 @@ async function handleResumeUpload(e) {
             const confirmResponse = await fetch(`${API_BASE}/confirm-resume-blocks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ blocks: data.blocks })
+                body: JSON.stringify({ blocks: data.blocks, upload_id: lastUploadId })
             });
 
             const confirmData = await confirmResponse.json();
@@ -359,6 +366,12 @@ async function handleResumeUpload(e) {
 
                 // Show individual blocks editor
                 renderResumeBlocksEditor();
+
+                // Refresh uploaded resumes list
+                await loadUploadedResumes();
+
+                // Reset upload_id
+                lastUploadId = null;
 
                 // Reset form
                 document.getElementById('upload-resume-form').reset();
@@ -539,7 +552,7 @@ async function confirmBlocks() {
         const response = await fetch(`${API_BASE}/confirm-resume-blocks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ blocks: parsedResumeData.blocks })
+            body: JSON.stringify({ blocks: parsedResumeData.blocks, upload_id: lastUploadId })
         });
 
         const data = await response.json();
@@ -567,6 +580,12 @@ async function confirmBlocks() {
 
             // Update block selector for Tailor Resume tab
             renderBlockSelector(data.block_ids);
+
+            // Refresh uploaded resumes list
+            await loadUploadedResumes();
+
+            // Reset upload_id
+            lastUploadId = null;
 
             // Stay on Resume Intake tab to show the editor
             // (already on the tab since upload happened there)
@@ -731,6 +750,28 @@ async function loadJobs() {
         }
     } catch (error) {
         console.error('Failed to load jobs:', error);
+    }
+}
+
+async function loadUploadedResumes() {
+    const container = document.getElementById('uploaded-resumes-list');
+    if (!container) return;
+    try {
+        const resp = await fetch(`${API_BASE}/uploaded-resumes`);
+        if (!resp.ok) return;
+        const uploads = await resp.json();
+        if (!uploads.length) {
+            container.innerHTML = '';
+            return;
+        }
+        container.innerHTML = `
+            <h4>Previously uploaded resumes</h4>
+            <ul class="job-review-list">${uploads.map(u =>
+                `<li>${esc(u.filename)} — ${u.created_at ? new Date(u.created_at).toLocaleDateString() : 'unknown date'}, ${u.block_count} block(s)
+                 <a href="${API_BASE}/uploaded-resumes/${u.id}/download">download</a></li>`).join('')}
+            </ul>`;
+    } catch (e) {
+        console.error('Failed to load uploaded resumes:', e);
     }
 }
 
