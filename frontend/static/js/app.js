@@ -833,7 +833,7 @@ async function renderJobResumePanel(jobId) {
 
         const history = versions.length > 1
             ? `<details><summary>${versions.length} versions</summary><ul class="job-review-list">${versions.map(v =>
-                  `<li>v${v.version} — ${new Date(v.created_at).toLocaleDateString()} (${v.template}${v.tailored ? ', tailored' : ''})`
+                  `<li>v${v.version} — ${v.created_at ? new Date(v.created_at).toLocaleDateString() : 'unknown date'} (${esc(v.template)}${v.tailored ? ', tailored' : ''})`
                   + (v.has_pdf ? ` <a href="#" onclick="downloadGeneratedResume(${v.id}, 'pdf'); return false;">PDF</a>` : '')
                   + (v.has_docx ? ` <a href="#" onclick="downloadGeneratedResume(${v.id}, 'docx'); return false;">DOCX</a>` : '')
                   + '</li>').join('')}</ul></details>`
@@ -841,7 +841,7 @@ async function renderJobResumePanel(jobId) {
 
         panel.innerHTML = `
             <h4>Generated Resume</h4>
-            <p><strong>v${latest.version}</strong> — ${new Date(latest.created_at).toLocaleString()}${latest.tailored ? ' (tailored)' : ''}, template: ${esc(latest.template)}</p>
+            <p><strong>v${latest.version}</strong> — ${latest.created_at ? new Date(latest.created_at).toLocaleString() : 'unknown date'}${latest.tailored ? ' (tailored)' : ''}, template: ${esc(latest.template)}</p>
             <p>${fmtButtons}
                <button type="button" class="btn btn-primary" onclick="loadSavedResumeInTailor(${jobId})">Load in Tailor</button></p>
             <pre class="resume-preview">${esc(latest.resume_text)}</pre>
