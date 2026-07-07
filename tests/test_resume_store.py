@@ -65,3 +65,51 @@ def test_resume_text_applies_overrides(db_session, sample_job, sample_blocks, pa
     assert "TAILORED SUMMARY TEXT" in row.resume_text
     assert sample_blocks[0].text not in row.resume_text
     assert json.loads(row.overrides_json) == {str(sample_blocks[0].id): "TAILORED SUMMARY TEXT"}
+
+
+def test_list_versions_newest_first(db_session, sample_job, sample_blocks, patched_settings):
+    store = ResumeStoreService(db_session)
+    _save(store, sample_job, sample_blocks)
+    _save(store, sample_job, sample_blocks[:2])
+
+    versions = store.list_versions(sample_job.id)
+    assert [v["version"] for v in versions] == [2, 1]
+    assert versions[0]["block_count"] == 2
+    assert versions[0]["has_pdf"] is True and versions[0]["has_docx"] is False
+
+
+def test_get_version_detail_latest_and_specific(db_session, sample_job, sample_blocks, patched_settings):
+    store = ResumeStoreService(db_session)
+    _save(store, sample_job, sample_blocks)
+    _save(store, sample_job, sample_blocks[:2])
+
+    latest = store.get_version_detail(sample_job.id)
+    assert latest["version"] == 2
+    assert latest["block_ids"] == [b.id for b in sample_blocks[:2]]
+    assert latest["missing_block_ids"] == []
+    assert latest["resume_text"]
+
+    v1 = store.get_version_detail(sample_job.id, version=1)
+    assert v1["version"] == 1
+    assert v1["block_count"] == 3
+
+
+def test_get_version_detail_reports_deleted_blocks(db_session, sample_job, sample_blocks, patched_settings):
+    store = ResumeStoreService(db_session)
+    _save(store, sample_job, sample_blocks)
+
+    deleted_id = sample_blocks[0].id
+    db_session.delete(sample_blocks[0])
+    db_session.flush()
+
+    detail = store.get_version_detail(sample_job.id)
+    assert deleted_id in detail["missing_block_ids"]
+    assert deleted_id not in detail["block_ids"]
+    # the text snapshot survives block deletion
+    assert detail["resume_text"]
+
+
+def test_detail_and_summary_none_when_no_resumes(db_session, sample_job, patched_settings):
+    store = ResumeStoreService(db_session)
+    assert store.get_version_detail(sample_job.id) is None
+    assert store.latest_summary(sample_job.id) is None
