@@ -876,8 +876,66 @@ async function downloadGeneratedResume(resumeId, format) {
     }
 }
 
-function loadSavedResumeInTailor(jobId) {
-    alert('Coming in Task 9');
+// Saved-resume restore: a job that already has a generated resume offers to
+// reload it so the user tweaks and re-exports instead of rebuilding.
+async function checkSavedResume(jobId) {
+    const banner = document.getElementById('saved-resume-banner');
+    if (!banner) return;
+    banner.classList.add('hidden');
+    if (!jobId) return;
+    try {
+        const resp = await fetch(`${API_BASE}/jobs/${jobId}/resumes/latest`);
+        if (!resp.ok) return; // 404 = nothing saved, stay hidden
+        const saved = await resp.json();
+        banner.innerHTML = `Saved resume <strong>v${saved.version}</strong> (${saved.created_at ? new Date(saved.created_at).toLocaleDateString() : 'unknown date'}) exists for this job.
+            <button type="button" class="btn btn-secondary" onclick="loadSavedResumeInTailor(${jobId})">Load saved resume</button>`;
+        banner.classList.remove('hidden');
+    } catch (e) {
+        console.error('Saved-resume check failed:', e);
+    }
+}
+
+async function loadSavedResumeInTailor(jobId) {
+    try {
+        const resp = await fetch(`${API_BASE}/jobs/${jobId}/resumes/latest`);
+        if (!resp.ok) {
+            alert('No saved resume found for this job.');
+            return;
+        }
+        const saved = await resp.json();
+
+        // Switch to the Tailor tab and select the job
+        document.querySelector('.tab-button[data-tab="tailor"]').click();
+        const jobSelect = document.getElementById('select-job');
+        jobSelect.value = String(jobId);
+
+        // Restore block selection
+        const wanted = new Set(saved.block_ids);
+        document.querySelectorAll('#block-selector input[type="checkbox"]').forEach(cb => {
+            cb.checked = wanted.has(parseInt(cb.value, 10));
+        });
+
+        // Restore template + export state so download buttons work immediately
+        const templateSel = document.getElementById('template-selector');
+        if (templateSel) templateSel.value = saved.template;
+        const tailoredToggle = document.getElementById('tailored-export-toggle');
+        if (tailoredToggle) tailoredToggle.checked = saved.tailored;
+        lastTailorJobId = jobId;
+        lastTailorBlockIds = saved.block_ids;
+        lastTailorVersion = `v${saved.version}`;
+
+        // Show the saved text in the preview pane
+        document.getElementById('resume-preview-text').textContent = saved.resume_text;
+        document.getElementById('resume-preview-section').classList.remove('hidden');
+
+        if (saved.missing_block_ids.length) {
+            alert(`Loaded v${saved.version}, but ${saved.missing_block_ids.length} block(s) used in it were deleted since (IDs: ${saved.missing_block_ids.join(', ')}). The saved text above is complete; the block selection loaded what still exists.`);
+        }
+        const modal = document.getElementById('job-review-modal');
+        if (modal) modal.classList.add('hidden');
+    } catch (error) {
+        alert('Could not load saved resume: ' + error.message);
+    }
 }
 
 // Load Blocks - Only if cookie indicates user has uploaded resume
@@ -1814,6 +1872,20 @@ async function downloadResumeAs(format) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        const savedVersion = response.headers.get('x-resume-version');
+        if (savedVersion) {
+            checkSavedResume(lastTailorJobId);
+            const preview = document.getElementById('resume-preview-section');
+            if (preview) {
+                let note = document.getElementById('export-saved-note');
+                if (!note) {
+                    note = document.createElement('p');
+                    note.id = 'export-saved-note';
+                    preview.prepend(note);
+                }
+                note.textContent = `✔ Saved as v${savedVersion} on this job.`;
+            }
+        }
     } catch (error) {
         alert('Export error: ' + error.message);
     }
@@ -1822,4 +1894,7 @@ async function downloadResumeAs(format) {
 // Add edit form handler on load
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('edit-block-form').addEventListener('submit', handleEditSubmit);
+    document.getElementById('select-job').addEventListener('change', (e) => {
+        checkSavedResume(parseInt(e.target.value, 10));
+    });
 });
