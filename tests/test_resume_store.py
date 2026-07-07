@@ -20,7 +20,9 @@ def _save(store, job, blocks, data=b"%PDF fake", fmt="pdf", template="classic", 
     )
 
 
-def test_save_generated_creates_row_and_file(db_session, sample_job, sample_blocks, patched_settings):
+def test_save_generated_creates_row_and_file(
+    db_session, sample_job, sample_blocks, patched_settings
+):
     store = ResumeStoreService(db_session)
     row = _save(store, sample_job, sample_blocks)
 
@@ -34,7 +36,9 @@ def test_save_generated_creates_row_and_file(db_session, sample_job, sample_bloc
     assert sample_blocks[0].text in row.resume_text
 
 
-def test_same_content_second_format_merges_into_version(db_session, sample_job, sample_blocks, patched_settings):
+def test_same_content_second_format_merges_into_version(
+    db_session, sample_job, sample_blocks, patched_settings
+):
     store = ResumeStoreService(db_session)
     first = _save(store, sample_job, sample_blocks, fmt="pdf")
     second = _save(store, sample_job, sample_blocks, data=b"PK docx", fmt="docx")
@@ -44,7 +48,9 @@ def test_same_content_second_format_merges_into_version(db_session, sample_job, 
     assert second.pdf_path is not None and second.docx_path is not None
 
 
-def test_content_change_creates_new_version(db_session, sample_job, sample_blocks, patched_settings):
+def test_content_change_creates_new_version(
+    db_session, sample_job, sample_blocks, patched_settings
+):
     store = ResumeStoreService(db_session)
     v1 = _save(store, sample_job, sample_blocks)
     v2 = _save(store, sample_job, sample_blocks[:2])  # different block selection
@@ -56,7 +62,9 @@ def test_content_change_creates_new_version(db_session, sample_job, sample_block
     assert json.loads(v1.block_ids_json) == [b.id for b in sample_blocks]
 
 
-def test_resume_text_applies_overrides(db_session, sample_job, sample_blocks, patched_settings, tmp_path, monkeypatch):
+def test_resume_text_applies_overrides(
+    db_session, sample_job, sample_blocks, patched_settings, tmp_path, monkeypatch
+):
     import backend.services.resume_store as rs
 
     overrides = {sample_blocks[0].id: "TAILORED SUMMARY TEXT"}
@@ -81,7 +89,9 @@ def test_list_versions_newest_first(db_session, sample_job, sample_blocks, patch
     assert versions[0]["has_pdf"] is True and versions[0]["has_docx"] is False
 
 
-def test_get_version_detail_latest_and_specific(db_session, sample_job, sample_blocks, patched_settings):
+def test_get_version_detail_latest_and_specific(
+    db_session, sample_job, sample_blocks, patched_settings
+):
     store = ResumeStoreService(db_session)
     _save(store, sample_job, sample_blocks)
     _save(store, sample_job, sample_blocks[:2])
@@ -97,7 +107,9 @@ def test_get_version_detail_latest_and_specific(db_session, sample_job, sample_b
     assert v1["block_count"] == 3
 
 
-def test_get_version_detail_reports_deleted_blocks(db_session, sample_job, sample_blocks, patched_settings):
+def test_get_version_detail_reports_deleted_blocks(
+    db_session, sample_job, sample_blocks, patched_settings
+):
     store = ResumeStoreService(db_session)
     _save(store, sample_job, sample_blocks)
 
