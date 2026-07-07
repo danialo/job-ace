@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from backend.models import models
 from backend.services.resume_store import ResumeStoreService
 
@@ -148,6 +150,12 @@ def test_link_blocks_overwrites_with_latest(db_session, patched_settings):
     assert json.loads(row.block_ids_json) == [4, 5]
 
 
+def test_link_blocks_raises_on_unknown_id(db_session, patched_settings):
+    store = ResumeStoreService(db_session)
+    with pytest.raises(ValueError, match="not found"):
+        store.link_blocks(9999, [1, 2])
+
+
 def test_list_uploads(db_session, patched_settings):
     store = ResumeStoreService(db_session)
     row, _ = store.save_upload("resume.pdf", b"content")
@@ -157,3 +165,7 @@ def test_list_uploads(db_session, patched_settings):
     assert len(uploads) == 1
     assert uploads[0]["filename"] == "resume.pdf"
     assert uploads[0]["block_count"] == 2
+    assert set(uploads[0].keys()) == {"id", "filename", "size_bytes", "created_at", "block_count"}
+    assert uploads[0]["id"] == row.id
+    assert uploads[0]["size_bytes"] == len(b"content")
+    assert uploads[0]["created_at"] is not None
