@@ -301,3 +301,67 @@ def test_export_persists_generated_resume(client, patched_settings):
     assert len(rows) == 1
     assert rows[0].docx_path and rows[0].pdf_path is None
     session.close()
+
+
+def test_job_resume_listing_and_detail(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+    for fmt in ("docx", "pdf"):  # same content twice -> one version, both formats
+        client.post("/export", json={
+            "job_id": job_id, "block_ids": block_ids, "template": "classic",
+            "format": fmt, "resume_version": "v1", "tailored": False,
+        })
+
+    listing = client.get(f"/jobs/{job_id}/resumes").json()
+    assert len(listing) == 1
+    assert listing[0]["version"] == 1
+    assert listing[0]["has_pdf"] and listing[0]["has_docx"]
+
+    latest = client.get(f"/jobs/{job_id}/resumes/latest").json()
+    assert latest["resume_text"]
+    assert latest["block_ids"] == block_ids
+    assert latest["missing_block_ids"] == []
+
+    by_version = client.get(f"/jobs/{job_id}/resumes/1").json()
+    assert by_version["version"] == 1
+
+    assert client.get(f"/jobs/{job_id}/resumes/99").status_code == 404
+
+    job_detail = client.get(f"/jobs/{job_id}").json()
+    assert job_detail["latest_resume"]["version"] == 1
+    session.close()
+
+
+def test_job_without_resumes(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, _ = _seed_job_and_blocks(session)
+
+    assert client.get(f"/jobs/{job_id}/resumes").json() == []
+    assert client.get(f"/jobs/{job_id}/resumes/latest").status_code == 404
+    assert client.get(f"/jobs/{job_id}").json()["latest_resume"] is None
+    session.close()
+
+
+def test_generated_resume_download(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+    client.post("/export", json={
+        "job_id": job_id, "block_ids": block_ids, "template": "classic",
+        "format": "docx", "resume_version": "v1", "tailored": False,
+    })
+    rid = client.get(f"/jobs/{job_id}/resumes").json()[0]["id"]
+
+    ok = client.get(f"/generated-resumes/{rid}/download?format=docx")
+    assert ok.status_code == 200
+    assert "attachment" in ok.headers["content-disposition"]
+
+    missing_fmt = client.get(f"/generated-resumes/{rid}/download?format=pdf")
+    assert missing_fmt.status_code == 404
+
+    import os
+    row = session.get(models.GeneratedResume, rid)
+    os.remove(row.docx_path)
+    gone = client.get(f"/generated-resumes/{rid}/download?format=docx")
+    assert gone.status_code == 404
+    assert row.docx_path in gone.json()["detail"]
+    session.close()

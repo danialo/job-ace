@@ -8,6 +8,7 @@ import tempfile
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -187,7 +188,53 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> dict:
         "must_haves": _parse_list(job.must_haves_json),
         "nice_to_haves": _parse_list(job.nice_to_haves_json),
         "screening_questions": _parse_list(job.screening_questions_json),
+        "latest_resume": ResumeStoreService(db).latest_summary(job.id),
     }
+
+
+@app.get("/jobs/{job_id}/resumes")
+def list_job_resumes(job_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    """List all generated resume versions for a job, newest first."""
+    if not db.get(models.JobPosting, job_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return ResumeStoreService(db).list_versions(job_id)
+
+
+@app.get("/jobs/{job_id}/resumes/latest")
+def get_latest_job_resume(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """Full detail of the latest generated resume for a job (restore payload)."""
+    detail = ResumeStoreService(db).get_version_detail(job_id)
+    if not detail:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No generated resume for this job")
+    return detail
+
+
+@app.get("/jobs/{job_id}/resumes/{version}")
+def get_job_resume_version(job_id: int, version: int, db: Session = Depends(get_db)) -> dict:
+    """Full detail of one generated resume version."""
+    detail = ResumeStoreService(db).get_version_detail(job_id, version=version)
+    if not detail:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Version {version} not found for this job")
+    return detail
+
+
+@app.get("/generated-resumes/{resume_id}/download")
+def download_generated_resume(resume_id: int, format: str = "pdf", db: Session = Depends(get_db)) -> FileResponse:
+    """Stream a stored generated-resume file."""
+    row = db.get(models.GeneratedResume, resume_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Generated resume not found")
+    if format == "pdf":
+        path, media_type = row.pdf_path, "application/pdf"
+    elif format == "docx":
+        path, media_type = row.docx_path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    else:
+        raise HTTPException(status_code=400, detail="format must be 'pdf' or 'docx'")
+    if not path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No {format} stored for this version")
+    if not Path(path).exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File missing from disk: {path}")
+    return FileResponse(path, media_type=media_type, filename=Path(path).name)
 
 
 @app.get("/blocks")
