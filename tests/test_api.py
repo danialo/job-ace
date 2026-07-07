@@ -271,12 +271,22 @@ def _seed_job_and_blocks(session):
     company = models.Company(name="ExpCo")
     session.add(company)
     session.flush()
-    job = models.JobPosting(company_id=company.id, url="https://x.test/j", title="Dev", location="Remote")
+    job = models.JobPosting(
+        company_id=company.id,
+        url="https://x.test/j",
+        title="Dev",
+        location="Remote",
+    )
     session.add(job)
     session.flush()
     blocks = [
         models.ResumeBlock(category="summary", text="Python developer."),
-        models.ResumeBlock(category="experience", text="Built APIs.", job_title="Dev", company="Acme"),
+        models.ResumeBlock(
+            category="experience",
+            text="Built APIs.",
+            job_title="Dev",
+            company="Acme",
+        ),
     ]
     session.add_all(blocks)
     session.flush()
@@ -372,8 +382,14 @@ def test_generated_resume_download(client, patched_settings):
 def test_upload_stores_file_and_lists(client, patched_settings, monkeypatch):
     from backend.services.resume_converter import ResumeConverter
     monkeypatch.setattr(
-        ResumeConverter, "parse_text_resume",
-        lambda self, text: {"blocks": [{"category": "summary", "content": "Python dev", "tags": []}], "metadata": {}},
+        ResumeConverter,
+        "parse_text_resume",
+        lambda self, text: {
+            "blocks": [
+                {"category": "summary", "content": "Python dev", "tags": []}
+            ],
+            "metadata": {},
+        },
     )
 
     resp = client.post(
@@ -397,8 +413,14 @@ def test_upload_stores_file_and_lists(client, patched_settings, monkeypatch):
 def test_parse_then_confirm_links_upload(client, patched_settings, monkeypatch):
     from backend.services.resume_converter import ResumeConverter
     monkeypatch.setattr(
-        ResumeConverter, "parse_text_resume",
-        lambda self, text: {"blocks": [{"category": "summary", "content": "Python dev", "tags": []}], "metadata": {}},
+        ResumeConverter,
+        "parse_text_resume",
+        lambda self, text: {
+            "blocks": [
+                {"category": "summary", "content": "Python dev", "tags": []}
+            ],
+            "metadata": {},
+        },
     )
 
     parsed = client.post(
@@ -408,11 +430,23 @@ def test_parse_then_confirm_links_upload(client, patched_settings, monkeypatch):
     upload_id = parsed["upload_id"]
     assert upload_id > 0
 
-    confirm = client.post("/confirm-resume-blocks", json={
-        "blocks": [{"category": "summary", "content": "Python dev", "tags": [],
-                    "job_title": None, "company": None, "start_date": None, "end_date": None}],
-        "upload_id": upload_id,
-    })
+    confirm = client.post(
+        "/confirm-resume-blocks",
+        json={
+            "blocks": [
+                {
+                    "category": "summary",
+                    "content": "Python dev",
+                    "tags": [],
+                    "job_title": None,
+                    "company": None,
+                    "start_date": None,
+                    "end_date": None,
+                }
+            ],
+            "upload_id": upload_id,
+        },
+    )
     assert confirm.status_code == 201
 
     uploads = client.get("/uploaded-resumes").json()

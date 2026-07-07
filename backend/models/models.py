@@ -149,9 +149,13 @@ class GeneratedResume(Base):
     pdf_path: Mapped[Optional[str]] = mapped_column(Text)
     docx_path: Mapped[Optional[str]] = mapped_column(Text)
     content_sha: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
 
-    job_posting: Mapped[JobPosting] = relationship("JobPosting", back_populates="generated_resumes")
+    job_posting: Mapped[JobPosting] = relationship(
+        "JobPosting", back_populates="generated_resumes"
+    )
 
     __table_args__ = (
         UniqueConstraint("job_posting_id", "version", name="uq_generated_resume_job_version"),
@@ -169,4 +173,6 @@ class UploadedResume(Base):
     sha256: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer)
     block_ids_json: Mapped[Optional[str]] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
