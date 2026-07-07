@@ -410,6 +410,56 @@ def test_upload_stores_file_and_lists(client, patched_settings, monkeypatch):
     assert dl.content == b"Python dev resume text"
 
 
+def test_restore_resume_version_returns_200_and_404(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+
+    # Export to create version 1
+    client.post("/export", json={
+        "job_id": job_id, "block_ids": block_ids,
+        "template": "classic", "format": "pdf",
+        "resume_version": "v1", "tailored": False,
+    })
+
+    resp = client.post(f"/jobs/{job_id}/resumes/1/restore")
+    assert resp.status_code == 200
+    assert resp.json()["restored_version"] == 1
+
+    not_found = client.post(f"/jobs/{job_id}/resumes/99/restore")
+    assert not_found.status_code == 404
+    session.close()
+
+
+def test_upload_resume_reused_flag(client, patched_settings, monkeypatch):
+    from backend.services.resume_converter import ResumeConverter
+    monkeypatch.setattr(
+        ResumeConverter,
+        "parse_text_resume",
+        lambda self, text: {
+            "blocks": [{"category": "summary", "content": "Dev", "tags": []}],
+            "metadata": {},
+        },
+    )
+    content = b"same resume bytes"
+
+    first = client.post(
+        "/upload-resume",
+        files={"file": ("r.txt", content, "text/plain")},
+    )
+    assert first.status_code == 201
+    assert first.json().get("reused") is False
+
+    second = client.post(
+        "/upload-resume",
+        files={"file": ("r_copy.txt", content, "text/plain")},
+    )
+    assert second.status_code == 201
+    assert second.json().get("reused") is True
+
+    uploads = client.get("/uploaded-resumes").json()
+    assert len(uploads) == 1
+
+
 def test_parse_then_confirm_links_upload(client, patched_settings, monkeypatch):
     from backend.services.resume_converter import ResumeConverter
     monkeypatch.setattr(

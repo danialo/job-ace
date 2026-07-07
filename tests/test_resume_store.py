@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from sqlalchemy import select
 
 from backend.models import models
 from backend.services.resume_store import ResumeStoreService
@@ -166,6 +167,42 @@ def test_link_blocks_raises_on_unknown_id(db_session, patched_settings):
     store = ResumeStoreService(db_session)
     with pytest.raises(ValueError, match="not found"):
         store.link_blocks(9999, [1, 2])
+
+
+def test_restore_overrides_writes_tailored_blocks_file(
+    db_session, sample_job, sample_blocks, patched_settings, monkeypatch
+):
+    import backend.services.resume_store as rs
+    from backend.services.artifacts import ArtifactManager
+
+    overrides = {sample_blocks[0].id: "RESTORED VERSION TEXT"}
+    monkeypatch.setattr(rs, "load_tailored_overrides", lambda db, job_id: overrides)
+
+    store = ResumeStoreService(db_session)
+    _save(store, sample_job, sample_blocks, tailored=True)
+
+    result = store.restore_overrides(sample_job.id, 1)
+    assert result["restored_version"] == 1
+    assert result["override_count"] == 1
+
+    # The file written must contain exactly the saved version's overrides_json
+    row = db_session.scalars(
+        select(models.GeneratedResume).where(
+            models.GeneratedResume.job_posting_id == sample_job.id
+        )
+    ).first()
+    job_dir = ArtifactManager(db_session).ensure_job_dir(sample_job)
+    written = json.loads((job_dir / "derived/tailored_blocks.json").read_text())
+    expected = json.loads(row.overrides_json)
+    assert written == expected
+
+
+def test_restore_overrides_unknown_version_raises(
+    db_session, sample_job, patched_settings
+):
+    store = ResumeStoreService(db_session)
+    with pytest.raises(ValueError, match="not found"):
+        store.restore_overrides(sample_job.id, 99)
 
 
 def test_list_uploads(db_session, patched_settings):

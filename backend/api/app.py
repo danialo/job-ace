@@ -226,6 +226,22 @@ def get_job_resume_version(
     return detail
 
 
+@app.post("/jobs/{job_id}/resumes/{version}/restore")
+def restore_job_resume_version(
+    job_id: int, version: int, db: Session = Depends(get_db)
+) -> dict:
+    """Make a saved version's tailored overrides the job's current working tailor state."""
+    try:
+        result = ResumeStoreService(db).restore_overrides(job_id, version)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return result
+
+
 @app.get("/generated-resumes/{resume_id}/download")
 def download_generated_resume(
     resume_id: int, format: str = "pdf", db: Session = Depends(get_db)
@@ -304,7 +320,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
         tmp_path = Path(tmp_file.name)
 
     store = ResumeStoreService(db)
-    upload_row, _reused = store.save_upload(file.filename, content)
+    upload_row, reused = store.save_upload(file.filename, content)
 
     try:
         # Get LLM client for resume parsing (o3-mini)
@@ -357,6 +373,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
             "block_ids": block_ids,
             "metadata": resume_data.get("metadata", {}),
             "upload_id": upload_row.id,
+            "reused": reused,
         }
 
     except Exception as e:
@@ -389,7 +406,7 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
         tmp_file.write(content)
         tmp_path = Path(tmp_file.name)
 
-    upload_row, _reused = ResumeStoreService(db).save_upload(file.filename, content)
+    upload_row, reused = ResumeStoreService(db).save_upload(file.filename, content)
     db.commit()
 
     try:
@@ -453,6 +470,7 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
             parsing_summary=resume_data.get("parsing_summary"),
             original_text=text,  # Include original text for side-by-side comparison
             upload_id=upload_row.id,
+            reused=reused,
         )
 
     except Exception as e:

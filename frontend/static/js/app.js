@@ -343,8 +343,10 @@ async function handleResumeUpload(e) {
                 setCookie('jobace_has_resume', 'true');
 
                 // Show success
+                const reusedNote = data.reused
+                    ? ' (identical file already stored — reused existing entry)' : '';
                 showResult(resultEl, 'success', `
-                    <strong>Resume Parsed Successfully!</strong>
+                    <strong>Resume Parsed Successfully!${esc(reusedNote)}</strong>
                     <br>Sections Found: ${esc(data.parsing_summary?.total_sections || 0)}
                     <br>Blocks Created: ${esc(confirmData.blocks_saved)}
                 `);
@@ -944,6 +946,16 @@ async function loadSavedResumeInTailor(jobId) {
             return;
         }
         const saved = await resp.json();
+
+        // Make the saved overrides the current working tailor state, so a
+        // tailored re-export renders this version's text, not a newer tailor run's.
+        const restoreResp = await fetch(
+            `${API_BASE}/jobs/${jobId}/resumes/${saved.version}/restore`,
+            { method: 'POST' });
+        if (!restoreResp.ok) {
+            alert('Could not restore the saved tailored text for re-export;'
+                + ' the preview below is still correct.');
+        }
 
         // Switch to the Tailor tab and select the job
         document.querySelector('.tab-button[data-tab="tailor"]').click();

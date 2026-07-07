@@ -143,6 +143,7 @@ class ParseResumeResponse(BaseModel):
     parsing_summary: Optional[dict] = None
     original_text: str = ""  # Original resume text before parsing
     upload_id: Optional[int] = None
+    reused: Optional[bool] = None
 
 
 class ConfirmBlockData(BaseModel):

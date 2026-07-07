@@ -144,6 +144,32 @@ class ResumeStoreService:
             "block_count": len(json.loads(row.block_ids_json)),
         }
 
+    def restore_overrides(self, job_id: int, version: int) -> dict:
+        """Write a saved version's overrides snapshot back as the job's current
+        working tailor state (derived/tailored_blocks.json), so a tailored
+        re-export renders the restored version's text."""
+        job = self.db.get(models.JobPosting, job_id)
+        if not job:
+            raise ValueError(f"Job posting {job_id} not found")
+        row = self.db.scalars(
+            select(models.GeneratedResume)
+            .where(
+                models.GeneratedResume.job_posting_id == job_id,
+                models.GeneratedResume.version == version,
+            )
+        ).first()
+        if not row:
+            raise ValueError(f"Version {version} not found for job {job_id}")
+        self.artifacts.write_text(
+            job, "tailored_blocks", "derived/tailored_blocks.json",
+            row.overrides_json,
+        )
+        self.db.flush()
+        return {
+            "restored_version": version,
+            "override_count": len(json.loads(row.overrides_json)),
+        }
+
     def _assemble_text(self, block_ids: List[int], overrides: Dict[int, str]) -> str:
         blocks = self.db.scalars(
             select(models.ResumeBlock).where(models.ResumeBlock.id.in_(block_ids))
