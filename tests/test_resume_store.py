@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from backend.models import models
 from backend.services.resume_store import ResumeStoreService
 
 
@@ -113,3 +114,46 @@ def test_detail_and_summary_none_when_no_resumes(db_session, sample_job, patched
     store = ResumeStoreService(db_session)
     assert store.get_version_detail(sample_job.id) is None
     assert store.latest_summary(sample_job.id) is None
+
+
+def test_save_upload_persists_file(db_session, patched_settings):
+    store = ResumeStoreService(db_session)
+    row, reused = store.save_upload("My Resume.pdf", b"%PDF real content")
+
+    assert reused is False
+    assert row.filename == "My Resume.pdf"
+    assert row.size_bytes == len(b"%PDF real content")
+    with open(row.path, "rb") as fh:
+        assert fh.read() == b"%PDF real content"
+    assert "resumes" in row.path
+
+
+def test_save_upload_identical_file_reuses_row(db_session, patched_settings):
+    store = ResumeStoreService(db_session)
+    first, _ = store.save_upload("resume.pdf", b"same bytes")
+    second, reused = store.save_upload("renamed.pdf", b"same bytes")
+
+    assert reused is True
+    assert second.id == first.id
+    assert db_session.query(models.UploadedResume).count() == 1
+
+
+def test_link_blocks_overwrites_with_latest(db_session, patched_settings):
+    store = ResumeStoreService(db_session)
+    row, _ = store.save_upload("resume.pdf", b"content")
+
+    store.link_blocks(row.id, [1, 2, 3])
+    assert json.loads(row.block_ids_json) == [1, 2, 3]
+    store.link_blocks(row.id, [4, 5])
+    assert json.loads(row.block_ids_json) == [4, 5]
+
+
+def test_list_uploads(db_session, patched_settings):
+    store = ResumeStoreService(db_session)
+    row, _ = store.save_upload("resume.pdf", b"content")
+    store.link_blocks(row.id, [1, 2])
+
+    uploads = store.list_uploads()
+    assert len(uploads) == 1
+    assert uploads[0]["filename"] == "resume.pdf"
+    assert uploads[0]["block_count"] == 2

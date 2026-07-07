@@ -169,3 +169,58 @@ class ResumeStoreService:
             ensure_ascii=False,
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Uploaded resumes (Resume Intake — deliberately not job-linked)
+    # ------------------------------------------------------------------
+
+    def save_upload(self, filename: str, content: bytes) -> tuple[models.UploadedResume, bool]:
+        """Store an uploaded resume file. Byte-identical re-uploads reuse the row."""
+        sha256 = hashlib.sha256(content).hexdigest()
+        existing = self.db.scalars(
+            select(models.UploadedResume).where(models.UploadedResume.sha256 == sha256)
+        ).first()
+        if existing:
+            return existing, True
+
+        resumes_dir = settings.data_root / "resumes"
+        resumes_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = filename.replace("/", "_").replace("\\", "_")
+        path = resumes_dir / f"{sha256[:12]}_{safe_name}"
+        path.write_bytes(content)
+
+        row = models.UploadedResume(
+            filename=filename,
+            path=str(path),
+            sha256=sha256,
+            size_bytes=len(content),
+        )
+        self.db.add(row)
+        self.db.flush()
+        return row, False
+
+    def link_blocks(self, upload_id: int, block_ids: List[int]) -> None:
+        """Record which blocks came from this upload (latest confirmation wins)."""
+        row = self.db.get(models.UploadedResume, upload_id)
+        if not row:
+            raise ValueError(f"Uploaded resume {upload_id} not found")
+        row.block_ids_json = json.dumps(block_ids)
+        self.db.flush()
+
+    def list_uploads(self) -> List[dict]:
+        rows = self.db.scalars(
+            select(models.UploadedResume).order_by(models.UploadedResume.id.desc())
+        ).all()
+        return [
+            {
+                "id": r.id,
+                "filename": r.filename,
+                "size_bytes": r.size_bytes,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "block_count": len(json.loads(r.block_ids_json)) if r.block_ids_json else 0,
+            }
+            for r in rows
+        ]
+
+    def get_upload(self, upload_id: int) -> Optional[models.UploadedResume]:
+        return self.db.get(models.UploadedResume, upload_id)
