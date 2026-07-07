@@ -35,6 +35,25 @@ TEMPLATE_DIR = Path(__file__).parent.parent / "templates" / "resume"
 
 
 # ---------------------------------------------------------------------------
+# Override loader (shared with resume_store)
+# ---------------------------------------------------------------------------
+
+def load_tailored_overrides(db: Session, job_id: int) -> Dict[int, str]:
+    """Load the current per-job tailored block text written by the tailor step."""
+    job = db.get(models.JobPosting, job_id)
+    if not job or not job.jd_json_path:
+        return {}
+    path = Path(job.jd_json_path).parent / "tailored_blocks.json"
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return {int(k): v for k, v in raw.items() if v}
+    except (json.JSONDecodeError, ValueError, OSError):
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # HTML rendering helpers (for PDF via WeasyPrint)
 # ---------------------------------------------------------------------------
 
@@ -246,14 +265,4 @@ class ExportService:
         return normalizer.normalize(block_ids, text_overrides=overrides)
 
     def _load_tailored_overrides(self, job_id: int) -> Dict[int, str]:
-        job = self.db.get(models.JobPosting, job_id)
-        if not job or not job.jd_json_path:
-            return {}
-        path = Path(job.jd_json_path).parent / "tailored_blocks.json"
-        if not path.exists():
-            return {}
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            return {int(k): v for k, v in raw.items() if v}
-        except (json.JSONDecodeError, ValueError, OSError):
-            return {}
+        return load_tailored_overrides(self.db, job_id)

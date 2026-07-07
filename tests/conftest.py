@@ -103,6 +103,7 @@ def patched_settings(tmp_path):
     (tmp_path / "artifacts").mkdir(exist_ok=True)
 
     with patch("backend.services.artifacts.settings", settings), \
+         patch("backend.services.resume_store.settings", settings), \
          patch("backend.config.get_settings", return_value=settings):
         yield settings
 
