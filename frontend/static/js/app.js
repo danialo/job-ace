@@ -2486,81 +2486,42 @@ async function savePolishAllChoices() {
         : `Saved ${toSave.length} polished section(s).`);
 }
 
-// Show improvement comparison modal
+// Show improvement comparison modal — same diff rendering as Polish All:
+// removals struck red in the original pane, additions green in the polished.
 function showImprovementComparison(blockId, originalText, improvedText) {
-    // Create modal overlay
+    const ops = diffTokens(originalText, improvedText);
+    const counts = diffChangeCounts(ops);
+    const formattingOnly = !counts.ins && !counts.del;
+    const countPill = formattingOnly
+        ? '<span class="polish-change-count">no wording changes (formatting only)</span>'
+        : `<span class="polish-change-count">+${counts.ins} / −${counts.del} words</span>`;
+
+    const comparison = formattingOnly
+        ? '<p class="text-muted">The polished text is identical word for word — only spacing or punctuation placement changed. Saving it is harmless but changes nothing you would read.</p>'
+        : `<div class="polish-all-compare">
+            <pre class="polish-all-text">${renderDiffPane(ops, 'original')}</pre>
+            <pre class="polish-all-text polish-all-improved" id="improvement-polished-pane">${renderDiffPane(ops, 'polished')}</pre>
+        </div>`;
+
     const modal = document.createElement('div');
     modal.className = 'improvement-modal';
     modal.innerHTML = `
-        <div class="improvement-modal-content">
+        <div class="improvement-modal-content polish-all-content">
             <div class="improvement-modal-header">
-                <h3>Review Polish</h3>
+                <h3>Review Polish ${countPill}</h3>
                 <button class="btn-close-modal" onclick="closeImprovementModal()">✕</button>
             </div>
-
-            <div class="improvement-comparison">
-                <div class="improvement-box">
-                    <div class="improvement-box-header">
-                        <h4>Original</h4>
-                        <div class="improvement-box-actions">
-                            <input type="checkbox" id="improvement-original-checkbox-${blockId}" onchange="toggleImprovementBlockSelection(${blockId})" />
-                            <label for="improvement-original-checkbox-${blockId}">Include</label>
-                            <button class="btn-save" onclick="saveImprovementVersion(${blockId}, 'original')">💾 Save</button>
-                        </div>
-                    </div>
-                    <div id="improvement-original-${blockId}" class="improvement-editor"></div>
-                </div>
-
-                <div class="improvement-box">
-                    <div class="improvement-box-header">
-                        <h4>Polished</h4>
-                        <div class="improvement-box-actions">
-                            <input type="checkbox" id="improvement-improved-checkbox-${blockId}" onchange="toggleImprovementBlockSelection(${blockId})" />
-                            <label for="improvement-improved-checkbox-${blockId}">Include</label>
-                            <button class="btn-save" onclick="saveImprovementVersion(${blockId}, 'improved')">💾 Save</button>
-                        </div>
-                    </div>
-                    <div id="improvement-improved-${blockId}" class="improvement-editor"></div>
-                </div>
-            </div>
-
+            ${formattingOnly ? '' : '<div class="polish-all-legend"><span>Original</span><span>Polished</span></div>'}
+            ${comparison}
             <div class="improvement-modal-actions">
-                <button class="btn-cancel" onclick="closeImprovementModal()">Cancel</button>
+                <button class="btn-cancel" onclick="closeImprovementModal()">Keep original</button>
+                ${formattingOnly ? '' : '<button type="button" class="btn-select-action" onclick="editImprovedBeforeSave()">✏️ Edit before saving</button>'}
+                <button class="btn-save" onclick="saveImprovementVersion(${blockId})">💾 Save polished</button>
             </div>
         </div>
     `;
-
     document.body.appendChild(modal);
-
-    // Initialize Quill editors for both versions
-    setTimeout(() => {
-        const originalQuill = new Quill(`#improvement-original-${blockId}`, {
-            theme: 'snow',
-            modules: { toolbar: false }
-        });
-        originalQuill.setText(originalText);
-
-        const improvedQuill = new Quill(`#improvement-improved-${blockId}`, {
-            theme: 'snow',
-            modules: { toolbar: false }
-        });
-        improvedQuill.setText(improvedText);
-
-        // Sync checkbox state with main selection
-        const isSelected = selectedBlockIds.includes(blockId);
-        const originalCheckbox = document.getElementById(`improvement-original-checkbox-${blockId}`);
-        const improvedCheckbox = document.getElementById(`improvement-improved-checkbox-${blockId}`);
-
-        if (originalCheckbox) originalCheckbox.checked = isSelected;
-        if (improvedCheckbox) improvedCheckbox.checked = isSelected;
-
-        // Store references
-        window.improvementComparison = {
-            blockId,
-            originalQuill,
-            improvedQuill
-        };
-    }, 50);
+    window.improvementComparison = { blockId, originalText, improvedText };
 }
 
 // Close improvement modal
@@ -2572,29 +2533,24 @@ function closeImprovementModal() {
     window.improvementComparison = null;
 }
 
-// Toggle block selection from improvement modal
-function toggleImprovementBlockSelection(blockId) {
-    // Get the checkbox from the main block editor
-    const mainCheckbox = document.getElementById(`select-block-${blockId}`);
-
-    // Toggle the main checkbox
-    if (mainCheckbox) {
-        mainCheckbox.checked = !mainCheckbox.checked;
-        // Trigger the main toggle function
-        toggleBlockSelection(blockId);
-    }
+// Swap the highlighted polished pane for a plain textarea so the user can
+// tweak the polished text before saving it.
+function editImprovedBeforeSave() {
+    const pane = document.getElementById('improvement-polished-pane');
+    if (!pane || !window.improvementComparison) return;
+    const ta = document.createElement('textarea');
+    ta.id = 'improvement-polished-edit';
+    ta.rows = Math.min(18, window.improvementComparison.improvedText.split('\n').length + 2);
+    ta.value = window.improvementComparison.improvedText;
+    pane.replaceWith(ta);
 }
 
-// Save a version from the improvement comparison
-async function saveImprovementVersion(blockId, version) {
+// Save the polished text (edited or as returned) to the block
+async function saveImprovementVersion(blockId) {
     if (!window.improvementComparison) return;
 
-    // Get the text from the selected version
-    const quill = version === 'original'
-        ? window.improvementComparison.originalQuill
-        : window.improvementComparison.improvedQuill;
-
-    const text = quill.getText().trim();
+    const editBox = document.getElementById('improvement-polished-edit');
+    const text = (editBox ? editBox.value : window.improvementComparison.improvedText).trim();
 
     // Save to database
     try {
