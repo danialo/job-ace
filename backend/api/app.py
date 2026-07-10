@@ -33,12 +33,18 @@ from backend.models.schemas import (
     ParseResumeResponse,
     PrefillPlanRequest,
     PrefillPlanResponse,
+    PromptLabCellRun,
+    PromptLabExperimentCreate,
+    PromptLabPick,
+    PromptLabVariantCreate,
+    PromptLabVariantUpdate,
     TailorRequest,
     TailorResponse,
     TemplateInfo,
     UpdateBlockRequest,
     UpdateBlockResponse,
 )
+from backend.services import prompt_lab as prompt_lab_module
 from backend.services.artifacts import ArtifactManager
 from backend.services.export import ExportService
 from backend.services.intake import IntakeService, ThinExtractionError
@@ -46,6 +52,7 @@ from backend.services.prefill import PrefillPlanner
 from backend.services.resume_converter import ResumeConverter
 from backend.services.resume_store import ResumeStoreService
 from backend.services.submission import SubmissionLogger
+from backend.services.prompt_lab import PromptLabService
 from backend.services.tailor import TailorService
 
 
@@ -664,6 +671,137 @@ def download_uploaded_resume(
             detail=f"File missing from disk: {row.path}",
         )
     return FileResponse(row.path, filename=row.filename)
+
+
+# --- Prompt Lab (debug tunable; see specs/polish-prompt-lab.md) ---
+
+
+def _require_prompt_lab() -> None:
+    if not prompt_lab_module.is_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
+@app.get("/prompt-lab/status")
+def prompt_lab_status() -> dict:
+    """Always answers — the frontend uses this to decide whether to show the lab."""
+    return {"enabled": prompt_lab_module.is_enabled()}
+
+
+@app.post("/prompt-lab/corpus", status_code=status.HTTP_201_CREATED)
+def prompt_lab_snapshot_corpus(db: Session = Depends(get_db)) -> dict:
+    _require_prompt_lab()
+    try:
+        return PromptLabService(db).snapshot_corpus()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/prompt-lab/corpus")
+def prompt_lab_list_corpora(db: Session = Depends(get_db)) -> list[dict]:
+    _require_prompt_lab()
+    return PromptLabService(db).list_corpora()
+
+
+@app.get("/prompt-lab/corpus/{corpus_id}")
+def prompt_lab_get_corpus(corpus_id: str, db: Session = Depends(get_db)) -> dict:
+    _require_prompt_lab()
+    corpus = PromptLabService(db).get_corpus(corpus_id)
+    if corpus is None:
+        raise HTTPException(status_code=404, detail=f"Corpus not found: {corpus_id}")
+    return corpus
+
+
+@app.get("/prompt-lab/variants")
+def prompt_lab_list_variants(db: Session = Depends(get_db)) -> list[dict]:
+    _require_prompt_lab()
+    return PromptLabService(db).list_variants()
+
+
+@app.post("/prompt-lab/variants", status_code=status.HTTP_201_CREATED)
+def prompt_lab_create_variant(
+    payload: PromptLabVariantCreate, db: Session = Depends(get_db)
+) -> dict:
+    _require_prompt_lab()
+    try:
+        return PromptLabService(db).create_variant(payload.name, payload.base)
+    except ValueError as exc:
+        code = 409 if "already exists" in str(exc) else 400
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+
+@app.put("/prompt-lab/variants/{name}")
+def prompt_lab_update_variant(
+    name: str, payload: PromptLabVariantUpdate, db: Session = Depends(get_db)
+) -> dict:
+    _require_prompt_lab()
+    try:
+        return PromptLabService(db).update_variant(name, payload.prompt_text)
+    except ValueError as exc:
+        code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+
+@app.delete("/prompt-lab/variants/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def prompt_lab_delete_variant(name: str, db: Session = Depends(get_db)) -> None:
+    _require_prompt_lab()
+    try:
+        PromptLabService(db).delete_variant(name)
+    except ValueError as exc:
+        code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+
+
+@app.post("/prompt-lab/experiments", status_code=status.HTTP_201_CREATED)
+def prompt_lab_create_experiment(
+    payload: PromptLabExperimentCreate, db: Session = Depends(get_db)
+) -> dict:
+    _require_prompt_lab()
+    try:
+        return PromptLabService(db).create_experiment(
+            payload.variant_names, payload.corpus_id
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/prompt-lab/experiments")
+def prompt_lab_list_experiments(db: Session = Depends(get_db)) -> list[dict]:
+    _require_prompt_lab()
+    return PromptLabService(db).list_experiments()
+
+
+@app.get("/prompt-lab/experiments/{exp_id}")
+def prompt_lab_get_experiment(exp_id: str, db: Session = Depends(get_db)) -> dict:
+    _require_prompt_lab()
+    exp = PromptLabService(db).get_experiment(exp_id)
+    if exp is None:
+        raise HTTPException(status_code=404, detail=f"Experiment not found: {exp_id}")
+    return exp
+
+
+@app.post("/prompt-lab/experiments/{exp_id}/cells")
+def prompt_lab_run_cell(
+    exp_id: str, payload: PromptLabCellRun, db: Session = Depends(get_db)
+) -> dict:
+    _require_prompt_lab()
+    try:
+        return PromptLabService(db).run_cell(exp_id, payload.variant, payload.block_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/prompt-lab/experiments/{exp_id}/picks")
+def prompt_lab_record_pick(
+    exp_id: str, payload: PromptLabPick, db: Session = Depends(get_db)
+) -> dict:
+    _require_prompt_lab()
+    try:
+        picks = PromptLabService(db).record_pick(
+            exp_id, payload.block_id, payload.variant
+        )
+        return {"picks": picks}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/applications")

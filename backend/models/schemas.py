@@ -246,3 +246,28 @@ class JobDetailResponse(BaseModel):
     extracted: ExtractedRequirements
     provenance: JobProvenance
     quality: ExtractionQuality
+
+
+class PromptLabVariantCreate(BaseModel):
+    """Create a Prompt Lab variant by cloning a base."""
+    name: str
+    base: str = "shipped:default"
+
+
+class PromptLabVariantUpdate(BaseModel):
+    prompt_text: str
+
+
+class PromptLabExperimentCreate(BaseModel):
+    variant_names: List[str]
+    corpus_id: str
+
+
+class PromptLabCellRun(BaseModel):
+    variant: str
+    block_id: int
+
+
+class PromptLabPick(BaseModel):
+    block_id: int
+    variant: str
