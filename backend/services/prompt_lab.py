@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
 import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -69,9 +70,11 @@ class PromptLabService:
 
     @staticmethod
     def _write(path: Path, payload: Dict) -> None:
-        path.write_text(
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        os.replace(tmp, path)  # atomic on POSIX: readers see old or new, never empty
 
     @contextmanager
     def _exclusive(self, path: Path):
