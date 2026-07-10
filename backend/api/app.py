@@ -7,6 +7,7 @@ import tempfile
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -43,6 +44,7 @@ from backend.services.export import ExportService
 from backend.services.intake import IntakeService, ThinExtractionError
 from backend.services.prefill import PrefillPlanner
 from backend.services.resume_converter import ResumeConverter
+from backend.services.resume_store import ResumeStoreService
 from backend.services.submission import SubmissionLogger
 from backend.services.tailor import TailorService
 
@@ -197,7 +199,96 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> dict:
         "must_haves": _parse_list(job.must_haves_json),
         "nice_to_haves": _parse_list(job.nice_to_haves_json),
         "screening_questions": _parse_list(job.screening_questions_json),
+        "latest_resume": ResumeStoreService(db).latest_summary(job.id),
     }
+
+
+@app.get("/jobs/{job_id}/resumes")
+def list_job_resumes(job_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    """List all generated resume versions for a job, newest first."""
+    if not db.get(models.JobPosting, job_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return ResumeStoreService(db).list_versions(job_id)
+
+
+@app.get("/jobs/{job_id}/resumes/latest")
+def get_latest_job_resume(job_id: int, db: Session = Depends(get_db)) -> dict:
+    """Full detail of the latest generated resume for a job (restore payload)."""
+    detail = ResumeStoreService(db).get_version_detail(job_id)
+    if not detail:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No generated resume for this job",
+        )
+    return detail
+
+
+@app.get("/jobs/{job_id}/resumes/{version}")
+def get_job_resume_version(
+    job_id: int, version: int, db: Session = Depends(get_db)
+) -> dict:
+    """Full detail of one generated resume version."""
+    detail = ResumeStoreService(db).get_version_detail(job_id, version=version)
+    if not detail:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Version {version} not found for this job",
+        )
+    return detail
+
+
+@app.post("/jobs/{job_id}/resumes/{version}/restore")
+def restore_job_resume_version(
+    job_id: int, version: int, db: Session = Depends(get_db)
+) -> dict:
+    """Make a saved version's tailored overrides the job's current working tailor state."""
+    try:
+        result = ResumeStoreService(db).restore_overrides(job_id, version)
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    return result
+
+
+@app.get("/generated-resumes/{resume_id}/download")
+def download_generated_resume(
+    resume_id: int, format: str = "pdf", db: Session = Depends(get_db)
+) -> FileResponse:
+    """Stream a stored generated-resume file."""
+    row = db.get(models.GeneratedResume, resume_id)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Generated resume not found",
+        )
+    if format == "pdf":
+        path, media_type = row.pdf_path, "application/pdf"
+    elif format == "docx":
+        path, media_type = (
+            row.docx_path,
+            (
+                "application/vnd.openxmlformats-"
+                "officedocument.wordprocessingml.document"
+            ),
+        )
+    else:
+        raise HTTPException(
+            status_code=400, detail="format must be 'pdf' or 'docx'"
+        )
+    if not path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No {format} stored for this version",
+        )
+    if not Path(path).exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File missing from disk: {path}",
+        )
+    return FileResponse(path, media_type=media_type, filename=Path(path).name)
 
 
 @app.get("/jobs/{job_id}/detail", response_model=JobDetailResponse)
@@ -350,6 +441,9 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
         tmp_file.write(content)
         tmp_path = Path(tmp_file.name)
 
+    store = ResumeStoreService(db)
+    upload_row, reused = store.save_upload(file.filename, content)
+
     try:
         # Get LLM client for resume parsing (o3-mini)
         from backend.services.llm import get_llm_client
@@ -391,6 +485,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
             db.flush()  # Flush to get the ID
             block_ids.append(block.id)
 
+        store.link_blocks(upload_row.id, block_ids)
         db.commit()
 
         return {
@@ -399,6 +494,8 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
             "blocks_loaded": len(block_ids),
             "block_ids": block_ids,
             "metadata": resume_data.get("metadata", {}),
+            "upload_id": upload_row.id,
+            "reused": reused,
         }
 
     except Exception as e:
@@ -430,6 +527,9 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
         content = await file.read()
         tmp_file.write(content)
         tmp_path = Path(tmp_file.name)
+
+    upload_row, reused = ResumeStoreService(db).save_upload(file.filename, content)
+    db.commit()
 
     try:
         # Get LLM client for resume parsing
@@ -491,6 +591,8 @@ async def parse_resume(file: UploadFile = File(...), db: Session = Depends(get_d
             sections=sections_info,
             parsing_summary=resume_data.get("parsing_summary"),
             original_text=text,  # Include original text for side-by-side comparison
+            upload_id=upload_row.id,
+            reused=reused,
         )
 
     except Exception as e:
@@ -524,6 +626,8 @@ def confirm_resume_blocks(payload: ConfirmResumeBlocksRequest, db: Session = Dep
             db.flush()  # Flush to get the ID
             block_ids.append(block.id)
 
+        if payload.upload_id:
+            ResumeStoreService(db).link_blocks(payload.upload_id, block_ids)
         db.commit()
 
         return ConfirmResumeBlocksResponse(
@@ -535,6 +639,31 @@ def confirm_resume_blocks(payload: ConfirmResumeBlocksRequest, db: Session = Dep
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error saving blocks: {str(e)}")
+
+
+@app.get("/uploaded-resumes")
+def list_uploaded_resumes(db: Session = Depends(get_db)) -> list[dict]:
+    """List original resume files uploaded in Resume Intake."""
+    return ResumeStoreService(db).list_uploads()
+
+
+@app.get("/uploaded-resumes/{upload_id}/download")
+def download_uploaded_resume(
+    upload_id: int, db: Session = Depends(get_db)
+) -> FileResponse:
+    """Stream an original uploaded resume file."""
+    row = ResumeStoreService(db).get_upload(upload_id)
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Uploaded resume not found",
+        )
+    if not Path(row.path).exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File missing from disk: {row.path}",
+        )
+    return FileResponse(row.path, filename=row.filename)
 
 
 @app.get("/applications")
@@ -844,11 +973,34 @@ def export_resume(payload: ExportRequest, db: Session = Depends(get_db)) -> Resp
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = f"resume_{payload.resume_version}.{ext}"
+    store = ResumeStoreService(db)
+    try:
+        row = store.save_generated(
+            job_id=payload.job_id,
+            block_ids=payload.block_ids,
+            tailored=payload.tailored,
+            template=payload.template,
+            fmt=fmt,
+            data=data,
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Resume rendered but could not be saved: {exc}"
+        ) from exc
+
+    filename = f"resume_v{row.version}.{ext}"
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Resume-Version": str(row.version),
+        },
     )
 
 

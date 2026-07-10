@@ -306,3 +306,241 @@ def test_artifact_not_found(client, api_session):
 def test_artifact_job_not_found(client):
     resp = client.get("/artifact/9999", params={"kind": "test"})
     assert resp.status_code == 404
+
+
+# --- Export persistence ---
+
+def _seed_job_and_blocks(session):
+    company = models.Company(name="ExpCo")
+    session.add(company)
+    session.flush()
+    job = models.JobPosting(
+        company_id=company.id,
+        url="https://x.test/j",
+        title="Dev",
+        location="Remote",
+    )
+    session.add(job)
+    session.flush()
+    blocks = [
+        models.ResumeBlock(category="summary", text="Python developer."),
+        models.ResumeBlock(
+            category="experience",
+            text="Built APIs.",
+            job_title="Dev",
+            company="Acme",
+        ),
+    ]
+    session.add_all(blocks)
+    session.flush()
+    ids = (job.id, [b.id for b in blocks])
+    session.commit()
+    return ids
+
+
+def test_export_persists_generated_resume(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+
+    resp = client.post("/export", json={
+        "job_id": job_id, "block_ids": block_ids,
+        "template": "classic", "format": "docx", "resume_version": "v1",
+        "tailored": False,
+    })
+    assert resp.status_code == 200
+    assert resp.headers["x-resume-version"] == "1"
+
+    rows = session.query(models.GeneratedResume).filter_by(job_posting_id=job_id).all()
+    assert len(rows) == 1
+    assert rows[0].docx_path and rows[0].pdf_path is None
+    session.close()
+
+
+def test_job_resume_listing_and_detail(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+    for fmt in ("docx", "pdf"):  # same content twice -> one version, both formats
+        client.post("/export", json={
+            "job_id": job_id, "block_ids": block_ids, "template": "classic",
+            "format": fmt, "resume_version": "v1", "tailored": False,
+        })
+
+    listing = client.get(f"/jobs/{job_id}/resumes").json()
+    assert len(listing) == 1
+    assert listing[0]["version"] == 1
+    assert listing[0]["has_pdf"] and listing[0]["has_docx"]
+
+    latest = client.get(f"/jobs/{job_id}/resumes/latest").json()
+    assert latest["resume_text"]
+    assert latest["block_ids"] == block_ids
+    assert latest["missing_block_ids"] == []
+
+    by_version = client.get(f"/jobs/{job_id}/resumes/1").json()
+    assert by_version["version"] == 1
+
+    assert client.get(f"/jobs/{job_id}/resumes/99").status_code == 404
+
+    job_detail = client.get(f"/jobs/{job_id}").json()
+    assert job_detail["latest_resume"]["version"] == 1
+    session.close()
+
+
+def test_job_without_resumes(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, _ = _seed_job_and_blocks(session)
+
+    assert client.get(f"/jobs/{job_id}/resumes").json() == []
+    assert client.get(f"/jobs/{job_id}/resumes/latest").status_code == 404
+    assert client.get(f"/jobs/{job_id}").json()["latest_resume"] is None
+    session.close()
+
+
+def test_generated_resume_download(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+    client.post("/export", json={
+        "job_id": job_id, "block_ids": block_ids, "template": "classic",
+        "format": "docx", "resume_version": "v1", "tailored": False,
+    })
+    rid = client.get(f"/jobs/{job_id}/resumes").json()[0]["id"]
+
+    ok = client.get(f"/generated-resumes/{rid}/download?format=docx")
+    assert ok.status_code == 200
+    assert "attachment" in ok.headers["content-disposition"]
+
+    missing_fmt = client.get(f"/generated-resumes/{rid}/download?format=pdf")
+    assert missing_fmt.status_code == 404
+
+    import os
+    row = session.get(models.GeneratedResume, rid)
+    os.remove(row.docx_path)
+    gone = client.get(f"/generated-resumes/{rid}/download?format=docx")
+    assert gone.status_code == 404
+    assert row.docx_path in gone.json()["detail"]
+    session.close()
+
+
+# --- Uploaded-resume persistence ---
+
+def test_upload_stores_file_and_lists(client, patched_settings, monkeypatch):
+    from backend.services.resume_converter import ResumeConverter
+    monkeypatch.setattr(
+        ResumeConverter,
+        "parse_text_resume",
+        lambda self, text: {
+            "blocks": [
+                {"category": "summary", "content": "Python dev", "tags": []}
+            ],
+            "metadata": {},
+        },
+    )
+
+    resp = client.post(
+        "/upload-resume",
+        files={"file": ("my_resume.txt", b"Python dev resume text", "text/plain")},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["upload_id"] > 0
+
+    uploads = client.get("/uploaded-resumes").json()
+    assert len(uploads) == 1
+    assert uploads[0]["filename"] == "my_resume.txt"
+    assert uploads[0]["block_count"] == 1
+
+    dl = client.get(f"/uploaded-resumes/{uploads[0]['id']}/download")
+    assert dl.status_code == 200
+    assert dl.content == b"Python dev resume text"
+
+
+def test_restore_resume_version_returns_200_and_404(client, patched_settings):
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+
+    # Export to create version 1
+    client.post("/export", json={
+        "job_id": job_id, "block_ids": block_ids,
+        "template": "classic", "format": "pdf",
+        "resume_version": "v1", "tailored": False,
+    })
+
+    resp = client.post(f"/jobs/{job_id}/resumes/1/restore")
+    assert resp.status_code == 200
+    assert resp.json()["restored_version"] == 1
+
+    not_found = client.post(f"/jobs/{job_id}/resumes/99/restore")
+    assert not_found.status_code == 404
+    session.close()
+
+
+def test_upload_resume_reused_flag(client, patched_settings, monkeypatch):
+    from backend.services.resume_converter import ResumeConverter
+    monkeypatch.setattr(
+        ResumeConverter,
+        "parse_text_resume",
+        lambda self, text: {
+            "blocks": [{"category": "summary", "content": "Dev", "tags": []}],
+            "metadata": {},
+        },
+    )
+    content = b"same resume bytes"
+
+    first = client.post(
+        "/upload-resume",
+        files={"file": ("r.txt", content, "text/plain")},
+    )
+    assert first.status_code == 201
+    assert first.json().get("reused") is False
+
+    second = client.post(
+        "/upload-resume",
+        files={"file": ("r_copy.txt", content, "text/plain")},
+    )
+    assert second.status_code == 201
+    assert second.json().get("reused") is True
+
+    uploads = client.get("/uploaded-resumes").json()
+    assert len(uploads) == 1
+
+
+def test_parse_then_confirm_links_upload(client, patched_settings, monkeypatch):
+    from backend.services.resume_converter import ResumeConverter
+    monkeypatch.setattr(
+        ResumeConverter,
+        "parse_text_resume",
+        lambda self, text: {
+            "blocks": [
+                {"category": "summary", "content": "Python dev", "tags": []}
+            ],
+            "metadata": {},
+        },
+    )
+
+    parsed = client.post(
+        "/parse-resume",
+        files={"file": ("r.txt", b"resume body", "text/plain")},
+    ).json()
+    upload_id = parsed["upload_id"]
+    assert upload_id > 0
+
+    confirm = client.post(
+        "/confirm-resume-blocks",
+        json={
+            "blocks": [
+                {
+                    "category": "summary",
+                    "content": "Python dev",
+                    "tags": [],
+                    "job_title": None,
+                    "company": None,
+                    "start_date": None,
+                    "end_date": None,
+                }
+            ],
+            "upload_id": upload_id,
+        },
+    )
+    assert confirm.status_code == 201
+
+    uploads = client.get("/uploaded-resumes").json()
+    assert uploads[0]["block_count"] == 1

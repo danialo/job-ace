@@ -19,6 +19,7 @@ let applications = [];
 let lastTailorJobId = null;
 let lastTailorBlockIds = [];
 let lastTailorVersion = 'v1';
+let lastUploadId = null;
 
 // Cookie helpers
 function setCookie(name, value, days = 365) {
@@ -53,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadBlocks();
     loadApplications();
     loadTemplates();
+    loadUploadedResumes();
 });
 
 // Tab Management
@@ -316,6 +318,11 @@ async function handleResumeUpload(e) {
         console.log('original_text value:', data.original_text);
 
         if (response.ok) {
+            // Store upload_id for threading through confirm
+            if (data.upload_id) {
+                lastUploadId = data.upload_id;
+            }
+
             // Clear existing blocks before saving new ones to prevent duplicates
             await fetch(`${API_BASE}/blocks`, {
                 method: 'DELETE',
@@ -326,7 +333,7 @@ async function handleResumeUpload(e) {
             const confirmResponse = await fetch(`${API_BASE}/confirm-resume-blocks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ blocks: data.blocks })
+                body: JSON.stringify({ blocks: data.blocks, upload_id: lastUploadId })
             });
 
             const confirmData = await confirmResponse.json();
@@ -336,8 +343,10 @@ async function handleResumeUpload(e) {
                 setCookie('jobace_has_resume', 'true');
 
                 // Show success
+                const reusedNote = data.reused
+                    ? ' (identical file already stored — reused existing entry)' : '';
                 showResult(resultEl, 'success', `
-                    <strong>Resume Parsed Successfully!</strong>
+                    <strong>Resume Parsed Successfully!${esc(reusedNote)}</strong>
                     <br>Sections Found: ${esc(data.parsing_summary?.total_sections || 0)}
                     <br>Blocks Created: ${esc(confirmData.blocks_saved)}
                 `);
@@ -359,6 +368,12 @@ async function handleResumeUpload(e) {
 
                 // Show individual blocks editor
                 renderResumeBlocksEditor();
+
+                // Refresh uploaded resumes list
+                await loadUploadedResumes();
+
+                // Reset upload_id
+                lastUploadId = null;
 
                 // Reset form
                 document.getElementById('upload-resume-form').reset();
@@ -539,7 +554,7 @@ async function confirmBlocks() {
         const response = await fetch(`${API_BASE}/confirm-resume-blocks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ blocks: parsedResumeData.blocks })
+            body: JSON.stringify({ blocks: parsedResumeData.blocks, upload_id: lastUploadId })
         });
 
         const data = await response.json();
@@ -567,6 +582,12 @@ async function confirmBlocks() {
 
             // Update block selector for Tailor Resume tab
             renderBlockSelector(data.block_ids);
+
+            // Refresh uploaded resumes list
+            await loadUploadedResumes();
+
+            // Reset upload_id
+            lastUploadId = null;
 
             // Stay on Resume Intake tab to show the editor
             // (already on the tab since upload happened there)
@@ -731,6 +752,28 @@ async function loadJobs() {
         }
     } catch (error) {
         console.error('Failed to load jobs:', error);
+    }
+}
+
+async function loadUploadedResumes() {
+    const container = document.getElementById('uploaded-resumes-list');
+    if (!container) return;
+    try {
+        const resp = await fetch(`${API_BASE}/uploaded-resumes`);
+        if (!resp.ok) return;
+        const uploads = await resp.json();
+        if (!uploads.length) {
+            container.innerHTML = '';
+            return;
+        }
+        container.innerHTML = `
+            <h4>Previously uploaded resumes</h4>
+            <ul class="job-review-list">${uploads.map(u =>
+                `<li>${esc(u.filename)} — ${u.created_at ? new Date(u.created_at).toLocaleDateString() : 'unknown date'}, ${u.block_count} block(s)
+                 <a href="${API_BASE}/uploaded-resumes/${u.id}/download">download</a></li>`).join('')}
+            </ul>`;
+    } catch (e) {
+        console.error('Failed to load uploaded resumes:', e);
     }
 }
 
@@ -1046,6 +1089,10 @@ async function reviewJob(jobId) {
             <h4>Nice-to-haves</h4>${renderList(job.nice_to_haves)}
             <h4>Screening questions</h4>${renderList(job.screening_questions)}
         `;
+
+        // Generated Resume panel — the resume(s) built for this job
+        body.insertAdjacentHTML('beforeend', '<div id="job-resume-panel"><h4>Generated Resume</h4><p class="text-muted">Loading…</p></div>');
+        renderJobResumePanel(jobId);
     } catch (error) {
         body.innerHTML = `<p style="color:#c0392b;">Network error: ${esc(error.message)}</p>`;
     }
@@ -1053,6 +1100,142 @@ async function reviewJob(jobId) {
 
 function closeJobReviewModal() {
     document.getElementById('job-review-modal').classList.add('hidden');
+}
+
+async function renderJobResumePanel(jobId) {
+    const panel = document.getElementById('job-resume-panel');
+    if (!panel) return;
+    try {
+        const latestResp = await fetch(`${API_BASE}/jobs/${jobId}/resumes/latest`);
+        if (latestResp.status === 404) {
+            panel.innerHTML = '<h4>Generated Resume</h4><p class="text-muted">No resume generated for this job yet.</p>';
+            return;
+        }
+        if (!latestResp.ok) throw new Error(`status ${latestResp.status}`);
+        const latest = await latestResp.json();
+        const versionsResp = await fetch(`${API_BASE}/jobs/${jobId}/resumes`);
+        const versions = versionsResp.ok ? await versionsResp.json() : [];
+
+        const fmtButtons = [
+            latest.has_pdf ? `<button type="button" class="btn btn-secondary" onclick="downloadGeneratedResume(${latest.id}, 'pdf')">Download PDF</button>` : '',
+            latest.has_docx ? `<button type="button" class="btn btn-secondary" onclick="downloadGeneratedResume(${latest.id}, 'docx')">Download DOCX</button>` : '',
+        ].join(' ');
+
+        const history = versions.length > 1
+            ? `<details><summary>${versions.length} versions</summary><ul class="job-review-list">${versions.map(v =>
+                  `<li>v${v.version} — ${v.created_at ? new Date(v.created_at).toLocaleDateString() : 'unknown date'} (${esc(v.template)}${v.tailored ? ', tailored' : ''})`
+                  + (v.has_pdf ? ` <a href="#" onclick="downloadGeneratedResume(${v.id}, 'pdf'); return false;">PDF</a>` : '')
+                  + (v.has_docx ? ` <a href="#" onclick="downloadGeneratedResume(${v.id}, 'docx'); return false;">DOCX</a>` : '')
+                  + '</li>').join('')}</ul></details>`
+            : '';
+
+        panel.innerHTML = `
+            <h4>Generated Resume</h4>
+            <p><strong>v${latest.version}</strong> — ${latest.created_at ? new Date(latest.created_at).toLocaleString() : 'unknown date'}${latest.tailored ? ' (tailored)' : ''}, template: ${esc(latest.template)}</p>
+            <p>${fmtButtons}
+               <button type="button" class="btn btn-primary" onclick="loadSavedResumeInTailor(${jobId})">Load in Tailor</button></p>
+            <pre class="resume-preview">${esc(latest.resume_text)}</pre>
+            ${history}
+        `;
+    } catch (error) {
+        panel.innerHTML = `<h4>Generated Resume</h4><p style="color:#c0392b;">Could not load resume: ${esc(error.message)}</p>`;
+    }
+}
+
+async function downloadGeneratedResume(resumeId, format) {
+    try {
+        const response = await fetch(`${API_BASE}/generated-resumes/${resumeId}/download?format=${format}`);
+        if (!response.ok) {
+            const err = await response.json();
+            alert('Download failed: ' + (err.detail || 'Unknown error'));
+            return;
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const disposition = response.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="(.+)"/);
+        a.download = match ? match[1] : `resume.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        alert('Download error: ' + error.message);
+    }
+}
+
+// Saved-resume restore: a job that already has a generated resume offers to
+// reload it so the user tweaks and re-exports instead of rebuilding.
+async function checkSavedResume(jobId) {
+    const banner = document.getElementById('saved-resume-banner');
+    if (!banner) return;
+    banner.classList.add('hidden');
+    if (!jobId) return;
+    try {
+        const resp = await fetch(`${API_BASE}/jobs/${jobId}/resumes/latest`);
+        if (!resp.ok) return; // 404 = nothing saved, stay hidden
+        const saved = await resp.json();
+        banner.innerHTML = `Saved resume <strong>v${saved.version}</strong> (${saved.created_at ? new Date(saved.created_at).toLocaleDateString() : 'unknown date'}) exists for this job.
+            <button type="button" class="btn btn-secondary" onclick="loadSavedResumeInTailor(${jobId})">Load saved resume</button>`;
+        banner.classList.remove('hidden');
+    } catch (e) {
+        console.error('Saved-resume check failed:', e);
+    }
+}
+
+async function loadSavedResumeInTailor(jobId) {
+    try {
+        const resp = await fetch(`${API_BASE}/jobs/${jobId}/resumes/latest`);
+        if (!resp.ok) {
+            alert('No saved resume found for this job.');
+            return;
+        }
+        const saved = await resp.json();
+
+        // Make the saved overrides the current working tailor state, so a
+        // tailored re-export renders this version's text, not a newer tailor run's.
+        const restoreResp = await fetch(
+            `${API_BASE}/jobs/${jobId}/resumes/${saved.version}/restore`,
+            { method: 'POST' });
+        if (!restoreResp.ok) {
+            alert('Could not restore the saved tailored text for re-export;'
+                + ' the preview below is still correct.');
+        }
+
+        // Switch to the Tailor tab and select the job
+        document.querySelector('.tab-button[data-tab="tailor"]').click();
+        const jobSelect = document.getElementById('select-job');
+        jobSelect.value = String(jobId);
+
+        // Restore block selection
+        const wanted = new Set(saved.block_ids);
+        document.querySelectorAll('#block-selector input[type="checkbox"]').forEach(cb => {
+            cb.checked = wanted.has(parseInt(cb.value, 10));
+        });
+
+        // Restore template + export state so download buttons work immediately
+        const templateSel = document.getElementById('template-selector');
+        if (templateSel) templateSel.value = saved.template;
+        const tailoredToggle = document.getElementById('tailored-export-toggle');
+        if (tailoredToggle) tailoredToggle.checked = saved.tailored;
+        lastTailorJobId = jobId;
+        lastTailorBlockIds = saved.block_ids;
+        lastTailorVersion = `v${saved.version}`;
+
+        // Show the saved text in the preview pane
+        document.getElementById('resume-preview-text').textContent = saved.resume_text;
+        document.getElementById('resume-preview-section').classList.remove('hidden');
+
+        if (saved.missing_block_ids.length) {
+            alert(`Loaded v${saved.version}, but ${saved.missing_block_ids.length} block(s) used in it were deleted since (IDs: ${saved.missing_block_ids.join(', ')}). The saved text above is complete; the block selection loaded what still exists.`);
+        }
+        const modal = document.getElementById('job-review-modal');
+        if (modal) modal.classList.add('hidden');
+    } catch (error) {
+        alert('Could not load saved resume: ' + error.message);
+    }
 }
 
 // Load Blocks - Only if cookie indicates user has uploaded resume
@@ -1989,6 +2172,20 @@ async function downloadResumeAs(format) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        const savedVersion = response.headers.get('x-resume-version');
+        if (savedVersion) {
+            checkSavedResume(lastTailorJobId);
+            const preview = document.getElementById('resume-preview-section');
+            if (preview) {
+                let note = document.getElementById('export-saved-note');
+                if (!note) {
+                    note = document.createElement('p');
+                    note.id = 'export-saved-note';
+                    preview.prepend(note);
+                }
+                note.textContent = `✔ Saved as v${savedVersion} on this job.`;
+            }
+        }
     } catch (error) {
         alert('Export error: ' + error.message);
     }
@@ -1997,4 +2194,7 @@ async function downloadResumeAs(format) {
 // Add edit form handler on load
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('edit-block-form').addEventListener('submit', handleEditSubmit);
+    document.getElementById('select-job').addEventListener('change', (e) => {
+        checkSavedResume(parseInt(e.target.value, 10));
+    });
 });
