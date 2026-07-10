@@ -1054,12 +1054,16 @@ async function openPromptLabExperiment(expId) {
             if (!cell) return `<div class="lab-cell"><h5>${esc(v)}</h5><p class="text-muted">pending</p></div>`;
             if (cell.error) return `<div class="lab-cell"><h5>${esc(v)}</h5><p class="lab-bad">error: ${esc(cell.error)}</p></div>`;
             const ops = diffTokens(b.text, cell.output);
+            const counts = diffChangeCounts(ops);
+            const changeNote = (counts.ins || counts.del)
+                ? `<span class="polish-change-count">+${counts.ins} / −${counts.del} words</span>`
+                : `<span class="polish-change-count">no wording changes${cell.output.trim() !== b.text.trim() ? ' (formatting only)' : ' (identical)'}</span>`;
             const fab = cell.scores && cell.scores.fabrication;
             const fabBanner = fab && fab.ok === false
                 ? `<p class="lab-fab-banner">⚠ fabrication: ${esc((fab.fabrications[0] || {}).claim || fab.notes)}</p>` : '';
             const picked = exp.picks[String(b.block_id)] === v;
             return `<div class="lab-cell${picked ? ' lab-picked' : ''}">
-                <h5>${esc(v)}
+                <h5>${esc(v)} ${changeNote}
                     <button type="button" class="btn-select-action" onclick="recordPromptLabPick('${esc(exp.id)}', ${b.block_id}, '${esc(v)}')">${picked ? '✔ picked' : 'pick'}</button>
                 </h5>
                 ${fabBanner}
@@ -2338,36 +2342,66 @@ function renderDiffPane(ops, side) {
     return html;
 }
 
-function showPolishAllReview(results) {
-    const changed = results.filter(r => r.ok && r.improved.trim() !== r.original.trim());
-    const unchanged = results.filter(r => r.ok && r.improved.trim() === r.original.trim());
-    const failed = results.filter(r => !r.ok);
+// Count real word-level edits in a diff (newlines excluded). {ins: 0, del: 0}
+// means the texts differ only in whitespace/formatting.
+function diffChangeCounts(ops) {
+    let ins = 0, del = 0;
+    for (const [op, tok] of ops) {
+        if (tok === '\n') continue;
+        if (op === 'ins') ins += 1;
+        else if (op === 'del') del += 1;
+    }
+    return { ins, del };
+}
 
-    if (!changed.length) {
+function showPolishAllReview(results) {
+    const ok = results.filter(r => r.ok);
+    const failed = results.filter(r => !r.ok);
+    // Classify by token diff, not string compare: a whitespace-only rewrite
+    // is "formatting only", not a text change worth reviewing word by word.
+    const analyzed = ok.map(r => {
+        const ops = diffTokens(r.original, r.improved);
+        return { ...r, ops, counts: diffChangeCounts(ops) };
+    });
+    const changed = analyzed.filter(r => r.counts.ins || r.counts.del);
+    const formattingOnly = analyzed.filter(
+        r => !r.counts.ins && !r.counts.del && r.improved.trim() !== r.original.trim());
+    const unchanged = analyzed.filter(
+        r => !r.counts.ins && !r.counts.del && r.improved.trim() === r.original.trim());
+
+    if (!changed.length && !formattingOnly.length) {
         alert('Polish finished: no sections had suggested changes.'
             + (failed.length ? ` ${failed.length} section(s) failed.` : ''));
         return;
     }
 
-    const rows = changed.map(r => {
+    const renderRow = (r, formattingNote) => {
         const b = r.block;
         const title = [b.category, b.job_title, b.company].filter(Boolean).join(' — ');
-        const ops = diffTokens(r.original, r.improved);
+        const counts = formattingNote
+            ? '<span class="polish-change-count">spacing/formatting only — no wording changes</span>'
+            : `<span class="polish-change-count">+${r.counts.ins} / −${r.counts.del} words</span>`;
+        const compare = formattingNote
+            ? `<p class="text-muted">The text is identical word for word; only spacing or blank lines moved. Nothing to review.</p>`
+            : `<div class="polish-all-compare">
+                <pre class="polish-all-text">${renderDiffPane(r.ops, 'original')}</pre>
+                <pre class="polish-all-text polish-all-improved">${renderDiffPane(r.ops, 'polished')}</pre>
+            </div>`;
         return `
         <div class="polish-all-row" data-block-id="${b.id}">
             <div class="polish-all-row-header">
-                <strong>${esc(title || 'Section')}</strong>
+                <strong>${esc(title || 'Section')}</strong> ${counts}
                 <span class="polish-all-choice">
-                    <label><input type="radio" name="polish-choice-${b.id}" value="original"> Keep original</label>
-                    <label><input type="radio" name="polish-choice-${b.id}" value="improved" checked> Use polished</label>
+                    <label><input type="radio" name="polish-choice-${b.id}" value="original" ${formattingNote ? 'checked' : ''}> Keep original</label>
+                    <label><input type="radio" name="polish-choice-${b.id}" value="improved" ${formattingNote ? '' : 'checked'}> Use polished</label>
                 </span>
             </div>
-            <div class="polish-all-compare">
-                <pre class="polish-all-text">${renderDiffPane(ops, 'original')}</pre>
-                <pre class="polish-all-text polish-all-improved">${renderDiffPane(ops, 'polished')}</pre>
-            </div>
+            ${compare}
         </div>`;
-    }).join('');
+    };
+
+    const rows = changed.map(r => renderRow(r, false)).join('')
+        + formattingOnly.map(r => renderRow(r, true)).join('');
 
     const notes = [];
     if (unchanged.length) notes.push(`${unchanged.length} section(s) came back unchanged`);
@@ -2379,7 +2413,7 @@ function showPolishAllReview(results) {
     modal.innerHTML = `
         <div class="improvement-modal-content polish-all-content">
             <div class="improvement-modal-header">
-                <h3>Review Polish — ${changed.length} section(s) with changes</h3>
+                <h3>Review Polish — ${changed.length} section(s) with wording changes${formattingOnly.length ? `, ${formattingOnly.length} formatting-only` : ''}</h3>
                 <button class="btn-close-modal" onclick="closePolishAllModal()">✕</button>
             </div>
             ${notes.length ? `<p class="text-muted polish-all-notes">${notes.join('; ')}.</p>` : ''}
@@ -2398,7 +2432,7 @@ function showPolishAllReview(results) {
         </div>
     `;
     document.body.appendChild(modal);
-    window.polishAllResults = changed;
+    window.polishAllResults = changed.concat(formattingOnly);
 }
 
 function setAllPolishChoices(value) {
