@@ -56,6 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadApplications();
     loadTemplates();
     loadUploadedResumes();
+    initPromptLab();
 });
 
 // Tab / view management (sidebar nav)
@@ -800,6 +801,141 @@ async function loadUploadedResumes() {
     } catch (e) {
         console.error('Failed to load uploaded resumes:', e);
     }
+}
+
+// --- Prompt Lab (visible only when the JOB_ACE_DEBUG_MENU tunable is on) ---
+
+let promptLabVariants = [];
+let promptLabCorpora = [];
+let promptLabEditingVariant = null;
+
+async function initPromptLab() {
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/status`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.enabled) return;
+        document.getElementById('prompt-lab-nav').classList.remove('hidden');
+        loadPromptLabCorpora();
+        loadPromptLabVariants();
+        if (typeof loadPromptLabExperiments === 'function') loadPromptLabExperiments();
+    } catch (e) {
+        console.error('Prompt Lab status check failed:', e);
+    }
+}
+
+async function loadPromptLabCorpora() {
+    const el = document.getElementById('prompt-lab-corpora');
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/corpus`);
+        if (!resp.ok) return;
+        promptLabCorpora = await resp.json();
+        el.innerHTML = promptLabCorpora.length
+            ? `<ul class="job-review-list">${promptLabCorpora.map(c =>
+                `<li>${esc(c.id)} — ${c.created_at ? new Date(c.created_at).toLocaleString() : 'unknown'}, ${c.block_count} block(s)</li>`).join('')}</ul>`
+            : '<p class="text-muted">No corpus snapshots yet.</p>';
+        if (typeof renderExperimentForm === 'function') renderExperimentForm();
+    } catch (e) {
+        console.error('Failed to load corpora:', e);
+    }
+}
+
+async function snapshotPromptLabCorpus() {
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/corpus`, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert('Snapshot failed: ' + (err.detail || resp.status));
+            return;
+        }
+        await loadPromptLabCorpora();
+    } catch (e) {
+        alert('Snapshot error: ' + e.message);
+    }
+}
+
+async function loadPromptLabVariants() {
+    const el = document.getElementById('prompt-lab-variants');
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/variants`);
+        if (!resp.ok) return;
+        promptLabVariants = await resp.json();
+        el.innerHTML = `<ul class="job-review-list">${promptLabVariants.map(v => {
+            const actions = v.read_only
+                ? `<button type="button" class="btn-select-action" onclick="clonePromptLabVariant('${esc(v.name)}')">Clone</button>
+                   <button type="button" class="btn-select-action" onclick="openVariantEditor('${esc(v.name)}', true)">View</button>`
+                : `<button type="button" class="btn-select-action" onclick="openVariantEditor('${esc(v.name)}', false)">Edit</button>
+                   <button type="button" class="btn-select-action" onclick="clonePromptLabVariant('${esc(v.name)}')">Clone</button>
+                   <button type="button" class="btn-select-action" onclick="deletePromptLabVariant('${esc(v.name)}')">Delete</button>`;
+            return `<li><strong>${esc(v.name)}</strong>${v.read_only ? ' (shipped, read-only)' : ''} ${actions}</li>`;
+        }).join('')}</ul>`;
+        if (typeof renderExperimentForm === 'function') renderExperimentForm();
+    } catch (e) {
+        console.error('Failed to load variants:', e);
+    }
+}
+
+async function clonePromptLabVariant(base) {
+    const name = prompt(`Name for the new variant (cloned from ${base}):`);
+    if (!name) return;
+    const resp = await fetch(`${API_BASE}/prompt-lab/variants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, base })
+    });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Clone failed: ' + (err.detail || resp.status));
+        return;
+    }
+    const created = await resp.json();
+    await loadPromptLabVariants();
+    openVariantEditor(created.name, false);
+}
+
+function openVariantEditor(name, readOnly) {
+    const v = promptLabVariants.find(x => x.name === name);
+    if (!v) return;
+    promptLabEditingVariant = readOnly ? null : name;
+    document.getElementById('variant-editor-title').textContent =
+        readOnly ? `${name} (read-only)` : `Editing: ${name}`;
+    const ta = document.getElementById('variant-editor-text');
+    ta.value = v.prompt_text;
+    ta.readOnly = !!readOnly;
+    document.getElementById('prompt-lab-variant-editor').classList.remove('hidden');
+}
+
+async function saveVariantEditor() {
+    if (!promptLabEditingVariant) { alert('This variant is read-only.'); return; }
+    const text = document.getElementById('variant-editor-text').value;
+    const resp = await fetch(
+        `${API_BASE}/prompt-lab/variants/${encodeURIComponent(promptLabEditingVariant)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt_text: text }) });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Save failed: ' + (err.detail || resp.status));
+        return;
+    }
+    await loadPromptLabVariants();
+    alert('Variant saved.');
+}
+
+function closeVariantEditor() {
+    promptLabEditingVariant = null;
+    document.getElementById('prompt-lab-variant-editor').classList.add('hidden');
+}
+
+async function deletePromptLabVariant(name) {
+    if (!confirm(`Delete variant "${name}"? Past experiment results keep their copies.`)) return;
+    const resp = await fetch(
+        `${API_BASE}/prompt-lab/variants/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!resp.ok && resp.status !== 204) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Delete failed: ' + (err.detail || resp.status));
+        return;
+    }
+    await loadPromptLabVariants();
 }
 
 function displayJobs() {

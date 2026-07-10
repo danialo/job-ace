@@ -1844,3 +1844,23 @@ code {
     border-radius: 2px;
     padding: 0 2px;
 }
+
+/* Prompt Lab */
+#prompt-lab h3 {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+#prompt-lab-variant-editor textarea {
+    width: 100%;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85rem;
+    line-height: 1.45;
+}
+
+.job-review-list .btn-select-action {
+    margin-left: 0.35rem;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+}
