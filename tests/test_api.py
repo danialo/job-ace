@@ -287,6 +287,42 @@ def test_list_applications_with_data(client, api_session):
     apps = resp.json()
     assert len(apps) == 1
     assert apps[0]["status"] == "submitted"
+    assert apps[0]["company"] == "AppCo"
+    assert apps[0]["job_url"] == "https://example.com/a"
+    assert apps[0]["latest_resume"] is None
+
+
+def test_list_applications_includes_generated_resume(client, patched_settings):
+    from backend.services.resume_store import ResumeStoreService
+
+    session = _TestSessionLocal()
+    job_id, block_ids = _seed_job_and_blocks(session)
+    app_record = models.Application(job_posting_id=job_id, status="submitted")
+    session.add(app_record)
+    session.commit()
+
+    store = ResumeStoreService(session)
+    row = store.save_generated(
+        job_id=job_id,
+        block_ids=block_ids,
+        tailored=False,
+        template="classic",
+        fmt="pdf",
+        data=b"%PDF-fake",
+    )
+    session.commit()
+    row_id = row.id
+    session.close()
+
+    resp = client.get("/applications")
+    assert resp.status_code == 200
+    apps = resp.json()
+    assert len(apps) == 1
+    latest = apps[0]["latest_resume"]
+    assert latest["id"] == row_id
+    assert latest["version"] == 1
+    assert latest["has_pdf"] is True
+    assert latest["has_docx"] is False
 
 
 # --- Artifact endpoint ---

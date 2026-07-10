@@ -668,15 +668,25 @@ def download_uploaded_resume(
 
 @app.get("/applications")
 def list_applications(db: Session = Depends(get_db)) -> list[dict]:
-    """List all applications."""
+    """List all applications, each with its job link and generated-resume summary."""
     apps = db.query(models.Application).order_by(models.Application.applied_at.desc()).all()
+    store = ResumeStoreService(db)
     return [
         {
             "id": app.id,
             "job_id": app.job_posting_id,
             "job_title": app.job_posting.title if app.job_posting else "Unknown",
+            "company": (
+                app.job_posting.company.name
+                if app.job_posting and app.job_posting.company
+                else None
+            ),
+            "job_url": app.job_posting.url if app.job_posting else None,
             "status": app.status,
             "applied_at": app.applied_at.isoformat() if app.applied_at else None,
+            "latest_resume": (
+                store.latest_summary(app.job_posting_id) if app.job_posting_id else None
+            ),
         }
         for app in apps
     ]
