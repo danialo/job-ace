@@ -69,7 +69,7 @@ def fabrication_check(checker: Callable, polished: str, source_block: Dict) -> D
     try:
         result = checker(polished, [source_block], None)
         return {
-            "ok": bool(result.ok),
+            "ok": None if result.ok is None else bool(result.ok),
             "fabrications": list(result.fabrications or []),
             "notes": result.notes or "",
         }

@@ -74,6 +74,13 @@ def test_fabrication_check_error_is_none_not_crash():
     assert "api down" in r["notes"]
 
 
+def test_fabrication_check_inconclusive_none_preserved():
+    checker = lambda text, blocks, ctx=None: SimpleNamespace(
+        ok=None, fabrications=[], notes="inconclusive")
+    r = ps.fabrication_check(checker, "polished", {"id": 1, "text": "orig"})
+    assert r["ok"] is None
+
+
 def test_score_output_shape():
     checker = lambda text, blocks, ctx=None: SimpleNamespace(ok=True, fabrications=[], notes="")
     s = ps.score_output("Dev\n• a", "Dev\n• a!", {"id": 1, "text": "Dev\n• a"}, checker)
