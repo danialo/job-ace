@@ -226,6 +226,49 @@ def test_get_job_detail_not_found(client):
     assert resp.status_code == 404
 
 
+def test_get_job_inspection_detail(client, api_session):
+    """The inspection endpoint returns the nested JobDetailResponse with quality tiers."""
+    company = models.Company(name="InspectCo")
+    api_session.add(company)
+    api_session.flush()
+    job = models.JobPosting(
+        company_id=company.id,
+        url="paste:inspect1",
+        title="Advocate",
+        location="Remote",
+        salary_min=80000,
+        salary_max=100000,
+        must_haves_json=json.dumps(["Degree in social work", "1-3 years experience", "Bilingual"]),
+        nice_to_haves_json=json.dumps(["Spanish"]),
+        screening_questions_json=json.dumps(["Why this role?"]),
+    )
+    api_session.add(job)
+    api_session.flush()
+
+    resp = client.get(f"/jobs/{job.id}/detail")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["job"]["id"] == job.id
+    assert data["job"]["title"] == "Advocate"
+    assert data["job"]["company"] == "InspectCo"
+    assert data["extracted"]["must_haves"] == [
+        "Degree in social work",
+        "1-3 years experience",
+        "Bilingual",
+    ]
+    assert data["extracted"]["nice_to_haves"] == ["Spanish"]
+    assert data["provenance"]["source_url"] == "paste:inspect1"
+    assert data["quality"]["must_haves_count"] == 3
+    assert data["quality"]["has_salary"] is True
+    # 3 must-haves + salary -> rich tier
+    assert data["quality"]["quality_tier"] == "rich"
+
+
+def test_get_job_inspection_detail_not_found(client):
+    resp = client.get("/jobs/9999/detail")
+    assert resp.status_code == 404
+
+
 # --- Applications ---
 
 def test_list_applications_with_data(client, api_session):

@@ -46,6 +46,22 @@ _BULLET_RE = re.compile(r"^[-•●*►▪▸]\s*(.+)$")
 # Pipe-delimited skills: | Python | Bash | JSON |
 _PIPE_SKILLS_RE = re.compile(r"^\|?\s*([^|]+(?:\|[^|]+)+)\s*\|?\s*$")
 
+# Common certification prefixes that indicate a new certification item
+# Used to split merged certifications like "CompTIA Network+ CompTIA A+"
+# Only use vendor/org prefixes that typically START a certification name
+_CERT_PREFIXES = (
+    "CompTIA",
+    "AWS ",  # Space required to avoid false splits
+    "Cisco ",
+    "Microsoft ",
+    "Oracle ",
+    "VMware ",
+    "Google ",
+    "Red Hat ",
+    "Salesforce ",
+    "ServiceNow ",
+)
+
 # Month names for date parsing
 _MONTH_MAP = {
     name.lower(): i
@@ -99,6 +115,10 @@ _ARTIFACT_PATTERNS = [
     (re.compile(r"(\w) -(\w)"), r"\1-\2", "space_before_hyphen"),
     # Split word with space: "Pr esent" → "Present" (conservative: only known cases)
     (re.compile(r"\bPr esent\b"), "Present", "split_word_present"),
+    # Trailing space before period: "precisely ." → "precisely."
+    (re.compile(r"(\w) +\."), r"\1.", "space_before_period"),
+    # Trailing space before comma: "word ," → "word,"
+    (re.compile(r"(\w) +,"), r"\1,", "space_before_comma"),
 ]
 
 
@@ -286,8 +306,11 @@ class ResumeNormalizer:
         current_label: str | None = None
         current_items: List[str] = []
 
-        for line in text.splitlines():
-            stripped = line.strip()
+        # Pre-process: join pipe-delimited continuation lines
+        # Handles cases like "| Python | Agentic\nWorkflows |" → "| Python | Agentic Workflows |"
+        lines = self._join_pipe_continuations(text.splitlines())
+
+        for stripped in lines:
             if not stripped:
                 continue
 
@@ -338,18 +361,49 @@ class ResumeNormalizer:
         return SkillsContent(groups=groups)
 
     def _parse_items(self, text: str) -> ItemsContent:
-        """Parse text as a simple list of items."""
+        """Parse text as a simple list of items.
+
+        Handles PDF extraction artifacts where multiple certifications
+        get merged on a single line (e.g., "CompTIA Network+ CompTIA A+").
+        """
         items = []
         for line in text.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
             bullet_match = _BULLET_RE.match(stripped)
-            if bullet_match:
-                items.append(bullet_match.group(1).strip())
-            else:
-                items.append(stripped)
+            content = bullet_match.group(1).strip() if bullet_match else stripped
+            # Split merged certifications
+            split_items = self._split_merged_certs(content)
+            items.extend(split_items)
         return ItemsContent(items=items)
+
+    def _split_merged_certs(self, text: str) -> List[str]:
+        """Split merged certification items based on known cert prefixes.
+
+        E.g., "CompTIA Network+ CompTIA A+" → ["CompTIA Network+", "CompTIA A+"]
+
+        Uses conservative prefixes that typically START certification names.
+        Requires trailing space in prefix to avoid over-splitting.
+        """
+        # Build regex pattern to split before cert prefixes (but not at start)
+        # Pattern: one or more spaces followed by a cert prefix
+        # Note: prefixes include trailing space where needed for specificity
+        prefix_patterns = [re.escape(p.rstrip()) for p in _CERT_PREFIXES]
+        pattern = r"\s+(?=" + "|".join(prefix_patterns) + r"(?:\s|$))"
+
+        parts = re.split(pattern, text, flags=re.IGNORECASE)
+        result = [p.strip() for p in parts if p.strip()]
+
+        if len(result) > 1:
+            self._events.append(NormalizationEvent(
+                rule_id="split_merged_certs",
+                description=f"Split {len(result)} merged certifications",
+                before=text,
+                after=" | ".join(result),
+            ))
+
+        return result if result else [text]
 
     def _parse_bullets_or_prose(self, text: str) -> BulletsContent | ProseContent:
         """Decide if text is bullets or prose based on content."""
@@ -409,12 +463,87 @@ class ResumeNormalizer:
     # Helpers
     # -------------------------------------------------------------------
 
+    def _join_pipe_continuations(self, lines: List[str]) -> List[str]:
+        """Join pipe-delimited skills lines that were split by PDF line breaks.
+
+        Handles cases like:
+            "| Python | Agentic"
+            "Workflows |"
+        becoming:
+            "| Python | Agentic Workflows |"
+
+        A line is a continuation if:
+        - Previous line ends without a closing | (mid-item break)
+        - This line doesn't start with | and contains | (end fragment)
+        """
+        if not lines:
+            return []
+
+        result: List[str] = []
+        pending: str | None = None
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                if pending:
+                    result.append(pending)
+                    pending = None
+                result.append("")
+                continue
+
+            if pending is not None:
+                # Check if this line is a continuation of a pipe-delimited sequence
+                # Continuation if: pending ends mid-item (not |) AND this line has |
+                pending_ends_mid_item = not pending.rstrip().endswith("|")
+                this_is_fragment = "|" in stripped and not stripped.startswith("|")
+
+                if pending_ends_mid_item and this_is_fragment:
+                    # Join: append space and continuation
+                    pending = pending + " " + stripped
+                    self._events.append(NormalizationEvent(
+                        rule_id="pipe_continuation_join",
+                        description="Joined pipe-delimited skill line continuation",
+                        before=f"...\\n{stripped}",
+                        after=pending[-60:] if len(pending) > 60 else pending,
+                    ))
+                    # Check if we're now complete (ends with |)
+                    if pending.rstrip().endswith("|"):
+                        result.append(pending)
+                        pending = None
+                    continue
+                else:
+                    # Not a continuation, emit pending and process this line
+                    result.append(pending)
+                    pending = None
+
+            # Check if this starts a pipe-delimited sequence
+            if "|" in stripped:
+                if stripped.rstrip().endswith("|"):
+                    # Complete line
+                    result.append(stripped)
+                else:
+                    # Potentially incomplete — hold for continuation
+                    pending = stripped
+            else:
+                result.append(stripped)
+
+        if pending:
+            result.append(pending)
+
+        return result
+
     def _strip_section_heading(self, text: str, cat: SectionCategory) -> str:
-        """Remove leading line if it's just the section heading baked into content."""
+        """Remove leading line if it's just the section heading baked into content.
+
+        For skills sections, only strip generic headings like "Skills" — NOT
+        group labels like "Key Skills" or "Technical Proficiencies" which
+        are structural content that _parse_skills uses for grouping.
+        """
         # Known heading variants per category
+        # For skills: only strip the generic "skills" heading, not group labels
         heading_variants = {
             SectionCategory.summary: {"summary", "professional summary", "career summary", "profile", "objective"},
-            SectionCategory.skills: {"skills", "key skills", "technical skills", "technical proficiencies"},
+            SectionCategory.skills: {"skills"},  # NOT key skills, technical skills — those are group labels
             SectionCategory.experience: {"experience", "work experience", "employment history", "work"},
             SectionCategory.education: {"education", "academic background"},
             SectionCategory.certifications: {"certifications", "certificates", "licenses and certifications"},

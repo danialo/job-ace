@@ -165,10 +165,10 @@ class ResumeBlock(BaseModel):
     category: str = Field(description="Block category: summary, experience, education, skills, projects, certifications, awards, or other")
     tags: List[str] = Field(default_factory=list, description="Relevant technology/skill tags extracted from content")
     content: str = Field(description="The actual text content of this block")
-    job_title: str | None = Field(default=None, description="Job title/role (experience blocks only)")
-    company: str | None = Field(default=None, description="Company/organization name (experience blocks only)")
-    start_date: str | None = Field(default=None, description="Start date in original format, e.g. '2022', 'Jan 2022'")
-    end_date: str | None = Field(default=None, description="End date in original format, e.g. '2024', 'Present'")
+    job_title: str | None = Field(default=None, description="Job title/role/degree (experience or education blocks)")
+    company: str | None = Field(default=None, description="Company/organization/institution name (experience or education blocks)")
+    start_date: str | None = Field(default=None, description="Start date in original format, e.g. '2022', 'Jan 2022' (experience or education blocks)")
+    end_date: str | None = Field(default=None, description="End date in original format, e.g. '2024', 'Present' (experience or education blocks)")
 
 
 class ResumeParsingSchema(BaseModel):
@@ -327,7 +327,7 @@ Return the sections in the order they appear in the resume."""
         if category == "experience":
             instruction = "Split each job/position into its OWN separate block. COPY THE EXACT TEXT AS-IS from the resume. DO NOT rewrite, summarize, or modify the text in any way."
         elif category == "education":
-            instruction = "Split each degree/institution into its OWN separate block. COPY THE EXACT TEXT AS-IS from the resume. DO NOT rewrite, summarize, or modify the text."
+            instruction = "Split each degree/institution into its OWN separate block. COPY THE EXACT TEXT AS-IS from the resume. DO NOT rewrite, summarize, or modify the text. Extract degree name as job_title, institution as company, and graduation dates as start_date/end_date."
         elif category == "projects":
             instruction = "Split each project into its OWN separate block. COPY THE EXACT TEXT AS-IS from the resume. DO NOT rewrite or summarize."
         elif category == "skills":
@@ -357,7 +357,8 @@ Section text:
 For each block, provide:
 - category: Use the category "{category}"
 - tags: Extract relevant keywords (companies, technologies, skills) for filtering purposes
-- content: THE EXACT VERBATIM TEXT FROM THE RESUME for this block (no modifications)"""
+- content: THE EXACT VERBATIM TEXT FROM THE RESUME for this block (no modifications)
+- For experience/education blocks also extract: job_title (or degree), company (or institution), start_date, end_date"""
 
         # Use structured outputs for section parsing
         completion = self.client.beta.chat.completions.parse(
@@ -1001,6 +1002,15 @@ Focus on:
 - Quantifying achievements where possible
 - Highlighting the most relevant experience first
 - Maintaining truthfulness - do not fabricate experience
+
+CRITICAL - Header handling:
+- Only include headers (job title, company, dates) if the block provides structured metadata (job_title, company, start_date, end_date fields)
+- If a block lacks structured metadata, use the text as-is WITHOUT adding placeholder headers like "Position, Company, Date Range"
+- NEVER fabricate header lines for blocks that don't have them
+
+Formatting conventions:
+- Use pipe `|` as separator in contact lines (email | phone | location), NOT tilde `~`
+- Use standard Markdown formatting for the resume body
 
 Respond with ONLY the JSON object, no markdown or explanation."""
 

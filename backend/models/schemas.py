@@ -185,3 +185,64 @@ class TemplateInfo(BaseModel):
     id: str
     name: str
     description: str
+
+
+# ============================================================================
+# Job Inspection View Schemas
+# ============================================================================
+
+
+class JobSummary(BaseModel):
+    """Summary fields for job list view."""
+    id: int
+    title: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    url: str
+    portal_hint: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    captured_at: Optional[datetime] = None
+    extraction_quality: Optional[str] = None  # "rich" | "minimal" | "thin"
+
+
+class ExtractedRequirements(BaseModel):
+    """Extracted job requirements and qualifications."""
+    must_haves: List[str] = Field(default_factory=list)
+    nice_to_haves: List[str] = Field(default_factory=list)
+    screening_questions: List[str] = Field(default_factory=list)
+    employment_type: Optional[str] = None
+    seniority: Optional[str] = None
+    deadline: Optional[str] = None
+
+
+class JobProvenance(BaseModel):
+    """Provenance and debug information for extraction."""
+    source_url: str
+    apply_url: Optional[str] = None
+    portal_hint: Optional[str] = None
+    captured_at: Optional[datetime] = None
+    artifact_dir: Optional[str] = None
+    jd_json_path: Optional[str] = None
+    raw_text_available: bool = False
+    raw_text_chars: int = 0
+
+
+class ExtractionQuality(BaseModel):
+    """Quality metrics for job extraction."""
+    must_haves_count: int = 0
+    nice_to_haves_count: int = 0
+    screening_questions_count: int = 0
+    has_salary: bool = False
+    has_location: bool = False
+    has_employment_type: bool = False
+    has_seniority: bool = False
+    quality_tier: str = "unknown"  # "rich" | "minimal" | "thin"
+
+
+class JobDetailResponse(BaseModel):
+    """Full job detail response for inspection view."""
+    job: JobSummary
+    extracted: ExtractedRequirements
+    provenance: JobProvenance
+    quality: ExtractionQuality
