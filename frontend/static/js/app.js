@@ -1415,14 +1415,28 @@ function displayApplications() {
         return;
     }
 
-    appsList.innerHTML = applications.map(app => `
+    appsList.innerHTML = applications.map(app => {
+        const isLink = /^https?:\/\//i.test(app.job_url || '');
+        const jobLine = isLink
+            ? `<p><strong>Job posting:</strong> <a href="${esc(app.job_url)}" target="_blank" rel="noopener">Open original posting ↗</a></p>`
+            : '';
+        const r = app.latest_resume;
+        const resumeLine = r
+            ? `<p><strong>Resume:</strong> v${r.version}${r.tailored ? ' (tailored)' : ''}`
+              + (r.has_pdf ? ` <a href="#" onclick="downloadGeneratedResume(${r.id}, 'pdf'); return false;">PDF</a>` : '')
+              + (r.has_docx ? ` <a href="#" onclick="downloadGeneratedResume(${r.id}, 'docx'); return false;">DOCX</a>` : '')
+              + '</p>'
+            : '<p class="text-muted">No generated resume on this job.</p>';
+        return `
         <div class="app-item">
-            <h4>${esc(app.job_title)}</h4>
+            <h4>${esc(app.job_title)}${app.company ? ` — ${esc(app.company)}` : ''}</h4>
             <p><strong>Status:</strong> ${esc(app.status)}</p>
-            <p><strong>Applied:</strong> ${esc(new Date(app.applied_at).toLocaleString())}</p>
-            <p><strong>Job ID:</strong> ${esc(app.job_id)}</p>
+            <p><strong>Applied:</strong> ${app.applied_at ? esc(new Date(app.applied_at).toLocaleString()) : 'unknown'}</p>
+            ${jobLine}
+            ${resumeLine}
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 // Update Job Selects
