@@ -56,6 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadApplications();
     loadTemplates();
     loadUploadedResumes();
+    initPromptLab();
 });
 
 // Tab / view management (sidebar nav)
@@ -800,6 +801,293 @@ async function loadUploadedResumes() {
     } catch (e) {
         console.error('Failed to load uploaded resumes:', e);
     }
+}
+
+// --- Prompt Lab (visible only when the JOB_ACE_DEBUG_MENU tunable is on) ---
+
+let promptLabVariants = [];
+let promptLabCorpora = [];
+let promptLabEditingVariant = null;
+
+async function initPromptLab() {
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/status`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.enabled) return;
+        document.getElementById('prompt-lab-nav').classList.remove('hidden');
+        loadPromptLabCorpora();
+        loadPromptLabVariants();
+        if (typeof loadPromptLabExperiments === 'function') loadPromptLabExperiments();
+    } catch (e) {
+        console.error('Prompt Lab status check failed:', e);
+    }
+}
+
+async function loadPromptLabCorpora() {
+    const el = document.getElementById('prompt-lab-corpora');
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/corpus`);
+        if (!resp.ok) return;
+        promptLabCorpora = await resp.json();
+        el.innerHTML = promptLabCorpora.length
+            ? `<ul class="job-review-list">${promptLabCorpora.map(c =>
+                `<li>${esc(c.id)} — ${c.created_at ? new Date(c.created_at).toLocaleString() : 'unknown'}, ${c.block_count} block(s)</li>`).join('')}</ul>`
+            : '<p class="text-muted">No corpus snapshots yet.</p>';
+        if (typeof renderExperimentForm === 'function') renderExperimentForm();
+    } catch (e) {
+        console.error('Failed to load corpora:', e);
+    }
+}
+
+async function snapshotPromptLabCorpus() {
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/corpus`, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert('Snapshot failed: ' + (err.detail || resp.status));
+            return;
+        }
+        await loadPromptLabCorpora();
+    } catch (e) {
+        alert('Snapshot error: ' + e.message);
+    }
+}
+
+async function loadPromptLabVariants() {
+    const el = document.getElementById('prompt-lab-variants');
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/variants`);
+        if (!resp.ok) return;
+        promptLabVariants = await resp.json();
+        el.innerHTML = `<ul class="job-review-list">${promptLabVariants.map(v => {
+            const actions = v.read_only
+                ? `<button type="button" class="btn-select-action" onclick="clonePromptLabVariant('${esc(v.name)}')">Clone</button>
+                   <button type="button" class="btn-select-action" onclick="openVariantEditor('${esc(v.name)}', true)">View</button>`
+                : `<button type="button" class="btn-select-action" onclick="openVariantEditor('${esc(v.name)}', false)">Edit</button>
+                   <button type="button" class="btn-select-action" onclick="clonePromptLabVariant('${esc(v.name)}')">Clone</button>
+                   <button type="button" class="btn-select-action" onclick="deletePromptLabVariant('${esc(v.name)}')">Delete</button>`;
+            return `<li><strong>${esc(v.name)}</strong>${v.read_only ? ' (shipped, read-only)' : ''} ${actions}</li>`;
+        }).join('')}</ul>`;
+        if (typeof renderExperimentForm === 'function') renderExperimentForm();
+    } catch (e) {
+        console.error('Failed to load variants:', e);
+    }
+}
+
+async function clonePromptLabVariant(base) {
+    const name = prompt(`Name for the new variant (cloned from ${base}):`);
+    if (!name) return;
+    const resp = await fetch(`${API_BASE}/prompt-lab/variants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, base })
+    });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Clone failed: ' + (err.detail || resp.status));
+        return;
+    }
+    const created = await resp.json();
+    await loadPromptLabVariants();
+    openVariantEditor(created.name, false);
+}
+
+function openVariantEditor(name, readOnly) {
+    const v = promptLabVariants.find(x => x.name === name);
+    if (!v) return;
+    promptLabEditingVariant = readOnly ? null : name;
+    document.getElementById('variant-editor-title').textContent =
+        readOnly ? `${name} (read-only)` : `Editing: ${name}`;
+    const ta = document.getElementById('variant-editor-text');
+    ta.value = v.prompt_text;
+    ta.readOnly = !!readOnly;
+    document.getElementById('prompt-lab-variant-editor').classList.remove('hidden');
+}
+
+async function saveVariantEditor() {
+    if (!promptLabEditingVariant) { alert('This variant is read-only.'); return; }
+    const text = document.getElementById('variant-editor-text').value;
+    const resp = await fetch(
+        `${API_BASE}/prompt-lab/variants/${encodeURIComponent(promptLabEditingVariant)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt_text: text }) });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Save failed: ' + (err.detail || resp.status));
+        return;
+    }
+    await loadPromptLabVariants();
+    alert('Variant saved.');
+}
+
+function closeVariantEditor() {
+    promptLabEditingVariant = null;
+    document.getElementById('prompt-lab-variant-editor').classList.add('hidden');
+}
+
+async function deletePromptLabVariant(name) {
+    if (!confirm(`Delete variant "${name}"? Past experiment results keep their copies.`)) return;
+    const resp = await fetch(
+        `${API_BASE}/prompt-lab/variants/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!resp.ok && resp.status !== 204) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Delete failed: ' + (err.detail || resp.status));
+        return;
+    }
+    await loadPromptLabVariants();
+}
+
+// --- Prompt Lab experiments ---
+
+function renderExperimentForm() {
+    const el = document.getElementById('prompt-lab-experiment-form');
+    if (!el) return;
+    if (promptLabVariants.length < 2 || !promptLabCorpora.length) {
+        el.innerHTML = '<p class="text-muted">Need at least two variants (shipped counts) and one corpus snapshot to run an experiment.</p>';
+        return;
+    }
+    el.innerHTML = `
+        <div class="prompt-lab-form-row">
+            <span><strong>Variants:</strong>
+            ${promptLabVariants.map(v =>
+                `<label class="prompt-lab-check"><input type="checkbox" class="exp-variant" value="${esc(v.name)}"> ${esc(v.name)}</label>`
+            ).join('')}</span>
+            <span><strong>Corpus:</strong>
+            <select id="exp-corpus">${promptLabCorpora.map(c =>
+                `<option value="${esc(c.id)}">${esc(c.id)} (${c.block_count} blocks)</option>`).join('')}</select></span>
+            <button type="button" class="btn btn-primary" id="exp-run-btn" onclick="startPromptLabExperiment()">Run experiment</button>
+        </div>`;
+}
+
+async function loadPromptLabExperiments() {
+    const el = document.getElementById('prompt-lab-experiments');
+    if (!el) return;
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/experiments`);
+        if (!resp.ok) return;
+        const exps = await resp.json();
+        el.innerHTML = exps.length
+            ? `<ul class="job-review-list">${exps.map(e =>
+                `<li>${esc(e.id)} — ${e.variants.map(esc).join(' vs ')} on ${esc(e.corpus_id)},
+                 ${e.cells_run}/${e.cells_total} cells
+                 <button type="button" class="btn-select-action" onclick="openPromptLabExperiment('${esc(e.id)}')">Open</button></li>`).join('')}</ul>`
+            : '<p class="text-muted">No experiments yet.</p>';
+    } catch (e) {
+        console.error('Failed to load experiments:', e);
+    }
+}
+
+async function startPromptLabExperiment() {
+    const variants = [...document.querySelectorAll('.exp-variant:checked')].map(cb => cb.value);
+    const corpusId = document.getElementById('exp-corpus').value;
+    if (variants.length < 2) { alert('Pick at least two variants.'); return; }
+
+    const btn = document.getElementById('exp-run-btn');
+    btn.disabled = true;
+    try {
+        const resp = await fetch(`${API_BASE}/prompt-lab/experiments`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ variant_names: variants, corpus_id: corpusId })
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            alert('Could not create experiment: ' + (err.detail || resp.status));
+            return;
+        }
+        const exp = await resp.json();
+        const cells = [...exp.cells];
+        const total = cells.length;
+        let done = 0;
+        btn.textContent = `Running 0/${total}…`;
+
+        // Two cells in flight — each cell is one polish + one fabrication check.
+        async function worker() {
+            while (cells.length) {
+                const cell = cells.shift();
+                try {
+                    await fetch(`${API_BASE}/prompt-lab/experiments/${exp.id}/cells`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ variant: cell.variant, block_id: cell.block_id })
+                    });
+                } catch (e) {
+                    console.error('Cell failed:', cell, e);
+                }
+                done += 1;
+                btn.textContent = `Running ${done}/${total}…`;
+            }
+        }
+        await Promise.all(Array.from({ length: Math.min(2, total) }, worker));
+        await loadPromptLabExperiments();
+        await openPromptLabExperiment(exp.id);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Run experiment';
+    }
+}
+
+async function openPromptLabExperiment(expId) {
+    const el = document.getElementById('prompt-lab-results');
+    el.innerHTML = '<p class="text-muted">Loading results…</p>';
+    const resp = await fetch(`${API_BASE}/prompt-lab/experiments/${encodeURIComponent(expId)}`);
+    if (!resp.ok) { el.innerHTML = '<p class="text-muted">Could not load experiment.</p>'; return; }
+    const exp = await resp.json();
+    const corpusResp = await fetch(`${API_BASE}/prompt-lab/corpus/${encodeURIComponent(exp.corpus_id)}`);
+    const corpus = corpusResp.ok ? await corpusResp.json() : { blocks: [] };
+
+    const scoreTable = `
+        <table class="prompt-lab-scores">
+            <tr><th>variant</th><th>cells</th><th>errors</th><th>fabrications</th><th>unchecked</th><th>mean filler</th><th>mean |Δlen|</th><th>structure breaks</th><th>your picks</th></tr>
+            ${exp.variants.map(v => {
+                const r = exp.rollups[v];
+                return `<tr><td>${esc(v)}</td><td>${r.cells_run}</td><td>${r.errors}</td>
+                    <td class="${r.fabrication_failures ? 'lab-bad' : ''}">${r.fabrication_failures}</td>
+                    <td>${r.fabrication_unchecked}</td><td>${r.mean_filler}</td>
+                    <td>${r.mean_abs_length_delta}</td><td>${r.structure_breaks}</td>
+                    <td><strong>${r.picks}</strong></td></tr>`;
+            }).join('')}
+        </table>`;
+
+    const blockSections = corpus.blocks.map(b => {
+        const cols = exp.variants.map(v => {
+            const cell = exp.results[`${v}::${b.block_id}`];
+            if (!cell) return `<div class="lab-cell"><h5>${esc(v)}</h5><p class="text-muted">pending</p></div>`;
+            if (cell.error) return `<div class="lab-cell"><h5>${esc(v)}</h5><p class="lab-bad">error: ${esc(cell.error)}</p></div>`;
+            const ops = diffTokens(b.text, cell.output);
+            const fab = cell.scores && cell.scores.fabrication;
+            const fabBanner = fab && fab.ok === false
+                ? `<p class="lab-fab-banner">⚠ fabrication: ${esc((fab.fabrications[0] || {}).claim || fab.notes)}</p>` : '';
+            const picked = exp.picks[String(b.block_id)] === v;
+            return `<div class="lab-cell${picked ? ' lab-picked' : ''}">
+                <h5>${esc(v)}
+                    <button type="button" class="btn-select-action" onclick="recordPromptLabPick('${esc(exp.id)}', ${b.block_id}, '${esc(v)}')">${picked ? '✔ picked' : 'pick'}</button>
+                </h5>
+                ${fabBanner}
+                <pre class="polish-all-text">${renderDiffPane(ops, 'polished')}</pre>
+            </div>`;
+        }).join('');
+        const title = [b.category, b.job_title, b.company].filter(Boolean).join(' — ');
+        return `<div class="lab-block">
+            <div class="polish-all-row-header"><strong>${esc(title || ('block ' + b.block_id))}</strong></div>
+            <details><summary>original</summary><pre class="polish-all-text">${esc(b.text)}</pre></details>
+            <div class="lab-cells" style="grid-template-columns: repeat(${exp.variants.length}, 1fr);">${cols}</div>
+        </div>`;
+    }).join('');
+
+    el.innerHTML = `<h4>${esc(exp.id)} — ${exp.variants.map(esc).join(' vs ')}</h4>${scoreTable}${blockSections}`;
+}
+
+async function recordPromptLabPick(expId, blockId, variant) {
+    const resp = await fetch(`${API_BASE}/prompt-lab/experiments/${encodeURIComponent(expId)}/picks`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ block_id: blockId, variant })
+    });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Pick failed: ' + (err.detail || resp.status));
+        return;
+    }
+    await openPromptLabExperiment(expId);
 }
 
 function displayJobs() {

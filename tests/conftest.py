@@ -104,6 +104,7 @@ def patched_settings(tmp_path):
 
     with patch("backend.services.artifacts.settings", settings), \
          patch("backend.services.resume_store.settings", settings), \
+         patch("backend.services.prompt_lab.settings", settings), \
          patch("backend.config.get_settings", return_value=settings):
         yield settings
 

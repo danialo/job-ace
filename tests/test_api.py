@@ -580,3 +580,111 @@ def test_parse_then_confirm_links_upload(client, patched_settings, monkeypatch):
 
     uploads = client.get("/uploaded-resumes").json()
     assert uploads[0]["block_count"] == 1
+
+
+# --- Prompt Lab ---
+
+from unittest.mock import patch as _patch
+
+
+def _enable_lab():
+    from backend.services import prompt_lab
+    return _patch.object(prompt_lab.settings, "debug_menu", True)
+
+
+def test_prompt_lab_status_reflects_tunable(client, patched_settings):
+    resp = client.get("/prompt-lab/status")
+    assert resp.status_code == 200
+    assert resp.json() == {"enabled": False}
+    with _enable_lab():
+        assert client.get("/prompt-lab/status").json() == {"enabled": True}
+
+
+def test_prompt_lab_routes_404_when_disabled(client, patched_settings):
+    assert client.get("/prompt-lab/variants").status_code == 404
+    assert client.post("/prompt-lab/corpus").status_code == 404
+    assert client.get("/prompt-lab/experiments").status_code == 404
+
+
+def test_prompt_lab_corpus_endpoints(client, api_session, patched_settings):
+    api_session.add(models.ResumeBlock(category="summary", text="Real text."))
+    api_session.commit()
+    with _enable_lab():
+        resp = client.post("/prompt-lab/corpus")
+        assert resp.status_code == 201
+        corpus_id = resp.json()["id"]
+        assert client.get("/prompt-lab/corpus").json()[0]["id"] == corpus_id
+        assert client.get(f"/prompt-lab/corpus/{corpus_id}").status_code == 200
+        assert client.get("/prompt-lab/corpus/corpus-99").status_code == 404
+
+
+def test_prompt_lab_corpus_empty_400(client, patched_settings):
+    with _enable_lab():
+        resp = client.post("/prompt-lab/corpus")
+        assert resp.status_code == 400
+        assert "No resume blocks" in resp.json()["detail"]
+
+
+def test_prompt_lab_variant_endpoints(client, patched_settings):
+    with _enable_lab():
+        resp = client.post("/prompt-lab/variants",
+                           json={"name": "Test One", "base": "shipped:default"})
+        assert resp.status_code == 201
+        assert resp.json()["name"] == "test-one"
+
+        dup = client.post("/prompt-lab/variants",
+                          json={"name": "test one", "base": "shipped:default"})
+        assert dup.status_code == 409
+
+        upd = client.put("/prompt-lab/variants/test-one",
+                         json={"prompt_text": "X {block_text}"})
+        assert upd.status_code == 200
+        assert upd.json()["prompt_text"] == "X {block_text}"
+
+        ro = client.put("/prompt-lab/variants/shipped:default",
+                        json={"prompt_text": "nope"})
+        assert ro.status_code == 400
+
+        names = [v["name"] for v in client.get("/prompt-lab/variants").json()]
+        assert names[0] == "shipped:default" and "test-one" in names
+
+        assert client.delete("/prompt-lab/variants/test-one").status_code == 204
+        assert client.delete("/prompt-lab/variants/ghost").status_code == 404
+
+
+def test_prompt_lab_experiment_flow(client, api_session, patched_settings):
+    api_session.add(models.ResumeBlock(category="summary", text="Real text."))
+    api_session.commit()
+    with _enable_lab():
+        client.post("/prompt-lab/variants", json={"name": "A", "base": "shipped:default"})
+        client.post("/prompt-lab/variants", json={"name": "B", "base": "shipped:default"})
+        corpus_id = client.post("/prompt-lab/corpus").json()["id"]
+
+        resp = client.post("/prompt-lab/experiments",
+                           json={"variant_names": ["a", "b"], "corpus_id": corpus_id})
+        assert resp.status_code == 201
+        exp = resp.json()
+        assert len(exp["cells"]) == 2
+
+        bad = client.post("/prompt-lab/experiments",
+                          json={"variant_names": ["a"], "corpus_id": corpus_id})
+        assert bad.status_code == 400
+
+        cell_req = {"variant": "a", "block_id": exp["cells"][0]["block_id"]}
+        with _patch("backend.services.prompt_lab.PromptLabService._default_llm",
+                    return_value=(lambda p: "POLISHED",
+                                  lambda t, b, c=None: __import__("types").SimpleNamespace(
+                                      ok=True, fabrications=[], notes=""))):
+            run = client.post(f"/prompt-lab/experiments/{exp['id']}/cells", json=cell_req)
+        assert run.status_code == 200
+        assert run.json()["output"] == "POLISHED"
+
+        pick = client.post(f"/prompt-lab/experiments/{exp['id']}/picks",
+                           json={"block_id": cell_req["block_id"], "variant": "a"})
+        assert pick.status_code == 200
+
+        got = client.get(f"/prompt-lab/experiments/{exp['id']}")
+        assert got.status_code == 200
+        assert got.json()["rollups"]["a"]["picks"] == 1
+        assert client.get("/prompt-lab/experiments/exp-99").status_code == 404
+        assert client.get("/prompt-lab/experiments").json()[0]["id"] == exp["id"]

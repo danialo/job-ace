@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     llm_temperature: float = 0.3
 
+    # Debug/tuning surfaces (Prompt Lab). Off everywhere except staging.
+    debug_menu: bool = False
+
     model_config = {
         "env_prefix": "JOB_ACE_",
         "env_file": ".env",

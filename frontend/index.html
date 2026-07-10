@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Job Ace - Application Assistant</title>
-    <link rel="stylesheet" href="static/css/styles.css?v=20260710-5">
+    <link rel="stylesheet" href="static/css/styles.css?v=20260710-6">
     <!-- Quill.js Rich Text Editor -->
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
@@ -22,6 +22,7 @@
                 <button class="nav-item" data-tab="tailor"><span class="nav-num">3</span><span class="nav-label">Tailor Resume</span></button>
                 <button class="nav-item" data-tab="capture"><span class="nav-num">4</span><span class="nav-label">Capture Form</span></button>
                 <button class="nav-item" data-tab="apply"><span class="nav-num">5</span><span class="nav-label">Apply</span></button>
+                <button class="nav-item hidden" id="prompt-lab-nav" data-tab="prompt-lab"><span class="nav-num">🧪</span><span class="nav-label">Prompt Lab</span></button>
             </nav>
             <div class="sidebar-footer">
                 <button id="reset-data-btn" class="btn-reset" title="Clear all resume blocks and reset data">Reset Data</button>
@@ -305,6 +306,34 @@
                 </div>
             </div>
         </div>
+
+        <!-- Prompt Lab (debug tunable) -->
+        <div id="prompt-lab" class="tab-content">
+            <div class="card">
+                <h2>🧪 Prompt Lab</h2>
+                <p>Tune the polish prompt: snapshot real blocks, edit prompt variants, run experiments, compare side by side. Local to this instance — nothing here is committed or shared.</p>
+
+                <h3>Corpus</h3>
+                <button type="button" class="btn btn-secondary" onclick="snapshotPromptLabCorpus()">Snapshot current blocks</button>
+                <div id="prompt-lab-corpora"><p class="text-muted">Loading…</p></div>
+
+                <h3>Variants</h3>
+                <div id="prompt-lab-variants"><p class="text-muted">Loading…</p></div>
+                <div id="prompt-lab-variant-editor" class="hidden">
+                    <h4 id="variant-editor-title"></h4>
+                    <textarea id="variant-editor-text" rows="18"></textarea>
+                    <p>
+                        <button type="button" class="btn btn-primary" onclick="saveVariantEditor()">Save variant</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeVariantEditor()">Close</button>
+                    </p>
+                </div>
+
+                <h3>Experiments</h3>
+                <div id="prompt-lab-experiment-form"></div>
+                <div id="prompt-lab-experiments"><p class="text-muted">Loading…</p></div>
+                <div id="prompt-lab-results"></div>
+            </div>
+        </div>
         </main>
     </div>
 
@@ -383,6 +412,6 @@
         </div>
     </div>
 
-    <script src="static/js/app.js?v=20260710-5"></script>
+    <script src="static/js/app.js?v=20260710-6"></script>
 </body>
 </html>
