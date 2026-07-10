@@ -1896,3 +1896,13 @@ code {
     padding: 0.1rem 0.55rem;
     white-space: nowrap;
 }
+
+#improvement-polished-edit {
+    width: 100%;
+    font-family: inherit;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    border: 1px solid var(--success-color);
+    border-radius: 0.375rem;
+    padding: 0.6rem;
+}
