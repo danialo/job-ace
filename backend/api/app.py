@@ -755,61 +755,11 @@ def polish_block(
 
     from backend.services.llm import get_llm_client, OpenAIClient
     from backend.config import get_settings
+    from backend.services.prompt_store import render_polish_prompt
     settings = get_settings()
     llm_client = get_llm_client(settings, task="tailoring")
 
-    prompt = f"""You are polishing a single WORK EXPERIENCE entry from a resume.
-
-Your job is to improve clarity, readability, grammar, and professional presentation while preserving all factual meaning.
-
-GOAL:
-Rewrite this work experience entry so it is:
-- cleaner
-- tighter
-- easier to read
-- more consistent
-- more professional
-
-NON-NEGOTIABLE RULES:
-1. DO NOT invent facts.
-2. DO NOT add metrics, percentages, time savings, business impact, scale, or outcomes unless explicitly stated in the source text.
-3. DO NOT add tools, technologies, responsibilities, certifications, or achievements not present in the source text.
-4. DO NOT change job title, company name, or date range.
-5. DO NOT strengthen claims beyond what the source text supports.
-6. DO NOT remove important technical specificity.
-7. DO NOT rewrite the experience to sound more senior, strategic, or leadership-oriented unless the source explicitly supports that.
-8. Preserve the original meaning of every bullet.
-
-ALLOWED CHANGES:
-- Fix grammar, punctuation, and awkward phrasing
-- Tighten sentence structure
-- Improve bullet consistency and parallelism
-- Replace weak or repetitive wording with stronger accurate wording
-- Break overly long bullets for readability
-- Merge redundant bullets only if no meaning is lost
-- Improve formatting and readability of the section
-
-STYLE RULES:
-- Keep the original structure: header + bullet list
-- Keep approximately the same number of bullets unless combining duplicates improves clarity
-- Use concise, professional, credible language
-- Prefer clear and specific wording over generic corporate language
-- Avoid filler like "results-driven," "dynamic," "passionate," or "team player"
-- Avoid keyword stuffing
-- Avoid exaggerated language
-
-OUTPUT REQUIREMENTS:
-Return only the polished work experience entry.
-Preserve this format:
-- First line: Job Title, Company, Date Range
-- Then bullet points
-No commentary.
-No explanations.
-No notes.
-No markdown fences.
-
-SOURCE WORK EXPERIENCE ENTRY:
-{block.text}"""
+    prompt = render_polish_prompt(block.text, block.category)
 
     try:
         if isinstance(llm_client, OpenAIClient):
