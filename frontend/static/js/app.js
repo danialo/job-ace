@@ -1627,7 +1627,7 @@ function toggleSelectAllBlocks(checked) {
 
 // Keep the select-all box in step with the individual checkboxes
 function syncSelectAllCheckbox() {
-    const selectAllCb = document.getElementById('select-all-blocks');
+    const selectAllCb = document.getElementById('include-all-blocks');
     if (!selectAllCb) return;
     selectAllCb.checked = blocks.length > 0 && selectedBlockIds.length === blocks.length;
     selectAllCb.indeterminate =
@@ -1723,8 +1723,8 @@ async function renderResumeBlocksEditor() {
     const selectAllBar = document.createElement('div');
     selectAllBar.className = 'select-all-blocks-bar';
     selectAllBar.innerHTML = `
-        <input type="checkbox" id="select-all-blocks" onchange="toggleSelectAllBlocks(this.checked)" />
-        <label for="select-all-blocks">Include all sections</label>
+        <input type="checkbox" id="include-all-blocks" onchange="toggleSelectAllBlocks(this.checked)" />
+        <label for="include-all-blocks">Include all sections</label>
     `;
     container.appendChild(selectAllBar);
 
