@@ -7,8 +7,10 @@ real resume text). See specs/polish-prompt-lab.md.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -70,6 +72,26 @@ class PromptLabService:
         path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+    @contextmanager
+    def _exclusive(self, path: Path):
+        """Serialize read-modify-write of an experiment file across threads/processes.
+
+        Uses O_CREAT|O_RDWR so all callers open the same inode (no truncation),
+        ensuring flock arbitrates correctly across threads and processes.
+        """
+        import os
+
+        lock_path = path.with_suffix(".lock")
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
     # -- corpus ----------------------------------------------------------
 
@@ -196,6 +218,7 @@ class PromptLabService:
             "id": exp_id,
             "created_at": _now(),
             "variants": list(variant_names),
+            "prompts": {name: self.get_variant(name)["prompt_text"] for name in variant_names},
             "corpus_id": corpus_id,
             "cells": [
                 {"variant": v, "block_id": b["block_id"], "status": "pending"}
@@ -242,6 +265,11 @@ class PromptLabService:
             raise ValueError(f"Experiment not found: {exp_id}")
         if variant not in exp["variants"]:
             raise ValueError(f"Variant {variant} is not part of {exp_id}")
+        if variant not in exp.get("prompts", {}):
+            raise ValueError(
+                f"Experiment {exp_id} has no embedded prompt for variant {variant} "
+                "(created before prompt-snapshot support)"
+            )
         corpus = self.get_corpus(exp["corpus_id"])
         block = next(
             (b for b in corpus["blocks"] if b["block_id"] == block_id), None
@@ -254,9 +282,10 @@ class PromptLabService:
             llm_runner = llm_runner or default_runner
             checker = checker or default_checker
 
-        variant_data = self.get_variant(variant)
+        # Render from the snapshot captured at experiment creation time so that
+        # editing or deleting a variant after the fact cannot misattribute results.
         prompt = render_template(
-            variant_data["prompt_text"], block["text"], block.get("category")
+            exp["prompts"][variant], block["text"], block.get("category")
         )
 
         cell: Dict = {"variant": variant, "block_id": block_id}
@@ -272,23 +301,31 @@ class PromptLabService:
             cell["error"] = str(exc)
             cell["scores"] = None
 
-        exp["results"][f"{variant}::{block_id}"] = cell
-        for c in exp["cells"]:
-            if c["variant"] == variant and c["block_id"] == block_id:
-                c["status"] = "error" if cell["error"] else "done"
-        self._write(path, exp)
+        key = f"{variant}::{block_id}"
+        # Hold the lock only for the short read-merge-write; the slow LLM call
+        # above runs outside the lock so concurrent cells are not serialized.
+        with self._exclusive(path):
+            fresh = self._read(path)
+            fresh["results"][key] = cell
+            for c in fresh["cells"]:
+                if c["variant"] == variant and c["block_id"] == block_id:
+                    c["status"] = "error" if cell["error"] else "done"
+            self._write(path, fresh)
         return cell
 
     def record_pick(self, exp_id: str, block_id: int, variant: str) -> Dict:
         path = self._dir("experiments") / f"{exp_id}.json"
+        # Validate before acquiring the lock (no file mutation yet).
         exp = self._read(path)
         if exp is None:
             raise ValueError(f"Experiment not found: {exp_id}")
         if variant not in exp["variants"]:
             raise ValueError(f"Variant {variant} is not part of {exp_id}")
-        exp["picks"][str(block_id)] = variant
-        self._write(path, exp)
-        return exp["picks"]
+        with self._exclusive(path):
+            fresh = self._read(path)
+            fresh["picks"][str(block_id)] = variant
+            self._write(path, fresh)
+        return fresh["picks"]
 
     def get_experiment(self, exp_id: str) -> Optional[Dict]:
         exp = self._read(self._dir("experiments") / f"{exp_id}.json")

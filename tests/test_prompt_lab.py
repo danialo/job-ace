@@ -207,3 +207,91 @@ def test_list_experiments(session, patched_settings):
     assert listed[0]["id"] == exp["id"]
     assert listed[0]["cells_total"] == 4
     assert listed[0]["cells_run"] == 1
+
+
+# --- concurrency and prompt-snapshot tests ---
+
+def test_concurrent_run_cell_no_clobber(session, patched_settings):
+    """4 cells run concurrently must all persist; none clobber each other."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    svc, corpus = _lab_with_corpus_and_variants(session)
+    exp = svc.create_experiment(["variant-a", "variant-b"], corpus["id"])
+
+    def slow_runner(prompt: str) -> str:
+        time.sleep(0.05)
+        return f"OUT[{prompt[:6]}]"
+
+    cells_to_run = [
+        (exp["id"], c["variant"], c["block_id"])
+        for c in exp["cells"]
+    ]
+
+    futures = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for eid, variant, block_id in cells_to_run:
+            futures.append(
+                pool.submit(svc.run_cell, eid, variant, block_id,
+                            slow_runner, _ok_checker)
+            )
+        results = [f.result() for f in as_completed(futures)]
+
+    assert len(results) == 4
+
+    stored = svc.get_experiment(exp["id"])
+    assert len(stored["results"]) == 4, (
+        f"Expected 4 results, got {len(stored['results'])}: {list(stored['results'].keys())}"
+    )
+    for c in stored["cells"]:
+        assert c["status"] != "pending", f"Cell {c} still pending after concurrent run"
+
+
+def test_embedded_prompt_snapshot_isolates_variant_changes(session, patched_settings):
+    """Editing a variant after experiment creation must not affect stored results
+    (run_cell reads from the embedded snapshot, not the live variant file)."""
+
+    def echo_prompt_runner(prompt: str) -> str:
+        # Returns the raw prompt so we can assert on its content.
+        return prompt
+
+    svc, corpus = _lab_with_corpus_and_variants(session)
+    exp = svc.create_experiment(["variant-a", "variant-b"], corpus["id"])
+
+    # Mutate variant-a AFTER experiment creation.
+    svc.update_variant("variant-a", "CHANGED PROMPT {block_text}")
+
+    block_id = corpus["blocks"][0]["block_id"]
+    cell = svc.run_cell(exp["id"], "variant-a", block_id,
+                        llm_runner=echo_prompt_runner, checker=_ok_checker)
+
+    # Output must reflect the ORIGINAL prompt (snapshotted as "A PROMPT …"),
+    # not the post-creation edit.
+    assert "A PROMPT" in cell["output"], (
+        f"Expected original 'A PROMPT' text in output, got: {cell['output']!r}"
+    )
+    assert "CHANGED PROMPT" not in cell["output"]
+
+
+def test_run_cell_on_deleted_variant_uses_snapshot(session, patched_settings):
+    """Deleting a variant after experiment creation must not cause an error;
+    the embedded snapshot still drives the cell."""
+
+    def echo_prompt_runner(prompt: str) -> str:
+        return prompt
+
+    svc, corpus = _lab_with_corpus_and_variants(session)
+    exp = svc.create_experiment(["variant-a", "variant-b"], corpus["id"])
+
+    # Delete variant-b — run_cell should still succeed using the snapshot.
+    svc.delete_variant("variant-b")
+
+    block_id = corpus["blocks"][0]["block_id"]
+    cell = svc.run_cell(exp["id"], "variant-b", block_id,
+                        llm_runner=echo_prompt_runner, checker=_ok_checker)
+
+    assert cell["error"] is None
+    assert "B PROMPT" in cell["output"]
+
+    stored = svc.get_experiment(exp["id"])
+    assert f"variant-b::{block_id}" in stored["results"]
