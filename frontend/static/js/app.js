@@ -1586,8 +1586,27 @@ function toggleBlockSelection(blockId) {
         selectedBlockIds.splice(index, 1);
     }
 
+    syncSelectAllCheckbox();
+
     // Update the reassembled view
     updateReassembledView();
+}
+
+// Check or uncheck every section's "Include in resume" box at once
+function toggleSelectAllBlocks(checked) {
+    selectedBlockIds = checked ? blocks.map(b => b.id) : [];
+    document.querySelectorAll('#resume-blocks-container input[id^="select-block-"]')
+        .forEach(cb => { cb.checked = checked; });
+    updateReassembledView();
+}
+
+// Keep the select-all box in step with the individual checkboxes
+function syncSelectAllCheckbox() {
+    const selectAllCb = document.getElementById('select-all-blocks');
+    if (!selectAllCb) return;
+    selectAllCb.checked = blocks.length > 0 && selectedBlockIds.length === blocks.length;
+    selectAllCb.indeterminate =
+        selectedBlockIds.length > 0 && selectedBlockIds.length < blocks.length;
 }
 
 // Update reassembled view — continuous text of ONLY the included sections.
@@ -1674,6 +1693,15 @@ async function renderResumeBlocksEditor() {
     // blocks while the pane showed nothing, so the first Save dumped the whole
     // resume into the pane.)
     selectedBlockIds = [];
+
+    // Select-all control for the per-section "Include in resume" checkboxes
+    const selectAllBar = document.createElement('div');
+    selectAllBar.className = 'select-all-blocks-bar';
+    selectAllBar.innerHTML = `
+        <input type="checkbox" id="select-all-blocks" onchange="toggleSelectAllBlocks(this.checked)" />
+        <label for="select-all-blocks">Include all sections</label>
+    `;
+    container.appendChild(selectAllBar);
 
     // Render each category section
     for (const [category, categoryBlocks] of Object.entries(blocksByCategory)) {
