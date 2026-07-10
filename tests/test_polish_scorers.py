@@ -50,17 +50,20 @@ def test_structure_header_not_required_when_original_has_none():
 
 
 def test_fabrication_check_ok():
-    checker = lambda text, blocks, ctx=None: SimpleNamespace(
-        ok=True, fabrications=[], notes="clean")
+    def checker(text, blocks, ctx=None):
+        return SimpleNamespace(ok=True, fabrications=[], notes="clean")
     r = ps.fabrication_check(checker, "polished", {"id": 1, "text": "orig"})
     assert r["ok"] is True and r["fabrications"] == []
 
 
 def test_fabrication_check_flags():
-    checker = lambda text, blocks, ctx=None: SimpleNamespace(
-        ok=False,
-        fabrications=[{"claim": "40% faster", "explanation": "not in source", "severity": "high"}],
-        notes="invented metric")
+    def checker(text, blocks, ctx=None):
+        return SimpleNamespace(
+            ok=False,
+            fabrications=[
+                {"claim": "40% faster", "explanation": "not in source", "severity": "high"}
+            ],
+            notes="invented metric")
     r = ps.fabrication_check(checker, "polished 40% faster", {"id": 1, "text": "orig"})
     assert r["ok"] is False
     assert r["fabrications"][0]["claim"] == "40% faster"
@@ -75,13 +78,14 @@ def test_fabrication_check_error_is_none_not_crash():
 
 
 def test_fabrication_check_inconclusive_none_preserved():
-    checker = lambda text, blocks, ctx=None: SimpleNamespace(
-        ok=None, fabrications=[], notes="inconclusive")
+    def checker(text, blocks, ctx=None):
+        return SimpleNamespace(ok=None, fabrications=[], notes="inconclusive")
     r = ps.fabrication_check(checker, "polished", {"id": 1, "text": "orig"})
     assert r["ok"] is None
 
 
 def test_score_output_shape():
-    checker = lambda text, blocks, ctx=None: SimpleNamespace(ok=True, fabrications=[], notes="")
+    def checker(text, blocks, ctx=None):
+        return SimpleNamespace(ok=True, fabrications=[], notes="")
     s = ps.score_output("Dev\n• a", "Dev\n• a!", {"id": 1, "text": "Dev\n• a"}, checker)
     assert set(s) == {"fabrication", "filler_count", "length_delta", "structure"}

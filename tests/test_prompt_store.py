@@ -1,6 +1,4 @@
 """Tests for the polish prompt file loader."""
-from pathlib import Path
-
 from backend.services import prompt_store
 
 
