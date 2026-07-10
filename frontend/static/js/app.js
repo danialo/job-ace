@@ -1971,6 +1971,71 @@ async function polishAllBlocks() {
     showPolishAllReview(results);
 }
 
+// Word-level diff (LCS) between two texts for the polish review panes.
+// Tokens are words and newlines; intra-line whitespace runs display as a
+// single space. Returns [op, token] pairs with op in eq | del | ins.
+function diffTokens(a, b) {
+    const at = a.match(/\S+|\n/g) || [];
+    const bt = b.match(/\S+|\n/g) || [];
+    const n = at.length, m = bt.length;
+
+    const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+            dp[i][j] = at[i] === bt[j]
+                ? dp[i + 1][j + 1] + 1
+                : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+
+    const ops = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+        if (at[i] === bt[j]) { ops.push(['eq', at[i]]); i++; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push(['del', at[i]]); i++; }
+        else { ops.push(['ins', bt[j]]); j++; }
+    }
+    while (i < n) ops.push(['del', at[i++]]);
+    while (j < m) ops.push(['ins', bt[j++]]);
+    return ops;
+}
+
+// Render one side of the diff as escaped HTML. The original pane shows
+// eq + del (removals struck through red); the polished pane shows
+// eq + ins (additions green). Consecutive changed words merge into one
+// highlight run instead of speckling every word.
+function renderDiffPane(ops, side) {
+    const keepOp = side === 'original' ? 'del' : 'ins';
+    const cls = side === 'original' ? 'diff-del' : 'diff-ins';
+    let html = '';
+    let runHtml = null;
+    let prevWasWord = false;
+    const flushRun = () => {
+        if (runHtml !== null) {
+            html += `<mark class="${cls}">${runHtml}</mark>`;
+            runHtml = null;
+        }
+    };
+    for (const [op, tok] of ops) {
+        if (op !== 'eq' && op !== keepOp) continue;
+        const isNewline = tok === '\n';
+        const text = isNewline ? '\n' : esc(tok);
+        const sep = (!isNewline && prevWasWord) ? ' ' : '';
+        if (op === 'eq') {
+            flushRun();
+            html += sep + text;
+        } else if (runHtml === null) {
+            html += sep; // the joining space stays unhighlighted
+            runHtml = text;
+        } else {
+            runHtml += sep + text;
+        }
+        prevWasWord = !isNewline;
+    }
+    flushRun();
+    return html;
+}
+
 function showPolishAllReview(results) {
     const changed = results.filter(r => r.ok && r.improved.trim() !== r.original.trim());
     const unchanged = results.filter(r => r.ok && r.improved.trim() === r.original.trim());
@@ -1985,6 +2050,7 @@ function showPolishAllReview(results) {
     const rows = changed.map(r => {
         const b = r.block;
         const title = [b.category, b.job_title, b.company].filter(Boolean).join(' — ');
+        const ops = diffTokens(r.original, r.improved);
         return `
         <div class="polish-all-row" data-block-id="${b.id}">
             <div class="polish-all-row-header">
@@ -1995,8 +2061,8 @@ function showPolishAllReview(results) {
                 </span>
             </div>
             <div class="polish-all-compare">
-                <pre class="polish-all-text">${esc(r.original)}</pre>
-                <pre class="polish-all-text polish-all-improved">${esc(r.improved)}</pre>
+                <pre class="polish-all-text">${renderDiffPane(ops, 'original')}</pre>
+                <pre class="polish-all-text polish-all-improved">${renderDiffPane(ops, 'polished')}</pre>
             </div>
         </div>`;
     }).join('');
