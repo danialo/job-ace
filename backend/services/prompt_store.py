@@ -29,8 +29,8 @@ def render_polish_prompt(block_text: str, category: str | None) -> str:
 def render_template(template: str, block_text: str, category: str | None) -> str:
     return (
         template
-        .replace("{block_text}", block_text)
         .replace("{category}", category or "general")
+        .replace("{block_text}", block_text)
     )
 
 

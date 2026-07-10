@@ -10,7 +10,7 @@ def test_default_template_loads():
     assert "NON-NEGOTIABLE RULES" in tpl
 
 
-def test_category_file_wins_over_default(tmp_path, monkeypatch):
+def test_category_file_wins_over_default():
     cat_file = prompt_store.PROMPT_DIR / "unittestcat.txt"
     cat_file.write_text("CATEGORY PROMPT {block_text}", encoding="utf-8")
     try:
@@ -32,6 +32,11 @@ def test_render_matches_previous_inline_prompt():
     rendered = prompt_store.render_polish_prompt(block_text, "experience")
     assert rendered.startswith("You are polishing a single WORK EXPERIENCE entry")
     assert rendered.rstrip("\n").endswith(block_text)
+
+
+def test_render_never_rescans_substituted_text():
+    rendered = prompt_store.render_polish_prompt("Worked on {category} systems", None)
+    assert "Worked on {category} systems" in rendered
 
 
 def test_shipped_prompt_text_is_raw_template():
