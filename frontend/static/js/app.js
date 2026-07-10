@@ -1719,12 +1719,14 @@ async function renderResumeBlocksEditor() {
     // resume into the pane.)
     selectedBlockIds = [];
 
-    // Select-all control for the per-section "Include in resume" checkboxes
+    // Select-all control for the per-section "Include in resume" checkboxes,
+    // plus bulk polish across every section
     const selectAllBar = document.createElement('div');
     selectAllBar.className = 'select-all-blocks-bar';
     selectAllBar.innerHTML = `
         <input type="checkbox" id="include-all-blocks" onchange="toggleSelectAllBlocks(this.checked)" />
         <label for="include-all-blocks">Include all sections</label>
+        <button type="button" class="btn-polish-all" id="polish-all-btn" onclick="polishAllBlocks()">✨ Polish all sections</button>
     `;
     container.appendChild(selectAllBar);
 
@@ -1923,6 +1925,163 @@ async function polishBlock(blockId) {
         polishBtn.disabled = false;
         polishBtn.style.background = '';
     }
+}
+
+// Polish every section, then review all results in one combined screen.
+// Nothing saves until the user confirms per-section choices.
+async function polishAllBlocks() {
+    if (!blocks.length) {
+        alert('No sections to polish. Upload a resume first.');
+        return;
+    }
+    const btn = document.getElementById('polish-all-btn');
+    const total = blocks.length;
+    let done = 0;
+    btn.disabled = true;
+    btn.textContent = `⏳ Polishing 0/${total}…`;
+
+    // Small worker pool so we don't slam the LLM with every section at once
+    const results = [];
+    const queue = [...blocks];
+    async function worker() {
+        while (queue.length) {
+            const block = queue.shift();
+            try {
+                const resp = await fetch(`${API_BASE}/blocks/${block.id}/polish`, { method: 'POST' });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    results.push({ block, original: data.original_text, improved: data.improved_text, ok: true });
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    results.push({ block, error: err.detail || `status ${resp.status}`, ok: false });
+                }
+            } catch (e) {
+                results.push({ block, error: e.message, ok: false });
+            }
+            done += 1;
+            btn.textContent = `⏳ Polishing ${done}/${total}…`;
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(3, total) }, worker));
+
+    btn.disabled = false;
+    btn.textContent = '✨ Polish all sections';
+
+    results.sort((a, b) => blocks.indexOf(a.block) - blocks.indexOf(b.block));
+    showPolishAllReview(results);
+}
+
+function showPolishAllReview(results) {
+    const changed = results.filter(r => r.ok && r.improved.trim() !== r.original.trim());
+    const unchanged = results.filter(r => r.ok && r.improved.trim() === r.original.trim());
+    const failed = results.filter(r => !r.ok);
+
+    if (!changed.length) {
+        alert('Polish finished: no sections had suggested changes.'
+            + (failed.length ? ` ${failed.length} section(s) failed.` : ''));
+        return;
+    }
+
+    const rows = changed.map(r => {
+        const b = r.block;
+        const title = [b.category, b.job_title, b.company].filter(Boolean).join(' — ');
+        return `
+        <div class="polish-all-row" data-block-id="${b.id}">
+            <div class="polish-all-row-header">
+                <strong>${esc(title || 'Section')}</strong>
+                <span class="polish-all-choice">
+                    <label><input type="radio" name="polish-choice-${b.id}" value="original"> Keep original</label>
+                    <label><input type="radio" name="polish-choice-${b.id}" value="improved" checked> Use polished</label>
+                </span>
+            </div>
+            <div class="polish-all-compare">
+                <pre class="polish-all-text">${esc(r.original)}</pre>
+                <pre class="polish-all-text polish-all-improved">${esc(r.improved)}</pre>
+            </div>
+        </div>`;
+    }).join('');
+
+    const notes = [];
+    if (unchanged.length) notes.push(`${unchanged.length} section(s) came back unchanged`);
+    if (failed.length) notes.push(`${failed.length} failed: ${failed.map(f => esc(String(f.block.category || f.block.id))).join(', ')}`);
+
+    const modal = document.createElement('div');
+    modal.className = 'improvement-modal';
+    modal.id = 'polish-all-modal';
+    modal.innerHTML = `
+        <div class="improvement-modal-content polish-all-content">
+            <div class="improvement-modal-header">
+                <h3>Review Polish — ${changed.length} section(s) with changes</h3>
+                <button class="btn-close-modal" onclick="closePolishAllModal()">✕</button>
+            </div>
+            ${notes.length ? `<p class="text-muted polish-all-notes">${notes.join('; ')}.</p>` : ''}
+            <div class="polish-all-actions-top">
+                <button type="button" class="btn-select-action" onclick="setAllPolishChoices('improved')">Use all polished</button>
+                <button type="button" class="btn-select-action" onclick="setAllPolishChoices('original')">Keep all original</button>
+            </div>
+            <div class="polish-all-list">
+                <div class="polish-all-legend"><span>Original</span><span>Polished</span></div>
+                ${rows}
+            </div>
+            <div class="improvement-modal-actions">
+                <button class="btn-cancel" onclick="closePolishAllModal()">Cancel</button>
+                <button class="btn-save" onclick="savePolishAllChoices()">💾 Save selected</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    window.polishAllResults = changed;
+}
+
+function setAllPolishChoices(value) {
+    document.querySelectorAll('#polish-all-modal input[type="radio"]').forEach(r => {
+        r.checked = r.value === value;
+    });
+}
+
+function closePolishAllModal() {
+    const modal = document.getElementById('polish-all-modal');
+    if (modal) modal.remove();
+    window.polishAllResults = null;
+}
+
+async function savePolishAllChoices() {
+    const results = window.polishAllResults || [];
+    const toSave = results.filter(r => {
+        const choice = document.querySelector(`input[name="polish-choice-${r.block.id}"]:checked`);
+        return choice && choice.value === 'improved';
+    });
+    if (!toSave.length) {
+        closePolishAllModal();
+        return;
+    }
+
+    const failures = [];
+    for (const r of toSave) {
+        const text = r.improved.trim();
+        try {
+            const resp = await fetch(`${API_BASE}/blocks/${r.block.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            if (!resp.ok) {
+                failures.push(r);
+                continue;
+            }
+            const block = blocks.find(b => b.id === r.block.id);
+            if (block) block.text = text;
+            const mainQuill = quillEditors[r.block.id];
+            if (mainQuill) mainQuill.setText(text);
+        } catch (e) {
+            failures.push(r);
+        }
+    }
+    updateReassembledView();
+    closePolishAllModal();
+    alert(failures.length
+        ? `Saved ${toSave.length - failures.length} section(s); ${failures.length} failed to save.`
+        : `Saved ${toSave.length} polished section(s).`);
 }
 
 // Show improvement comparison modal
